@@ -22,6 +22,7 @@ add_clang_library(clangTidyReadabilityModule
   ImplicitBoolConversionCheck.cpp
   InconsistentDeclarationParameterNameCheck.cpp
   IsolateDeclarationCheck.cpp
+  LogicalConnectorReplacementCheck.cpp
   MagicNumbersCheck.cpp
   MakeMemberFunctionConstCheck.cpp
   MisleadingIndentationCheck.cpp

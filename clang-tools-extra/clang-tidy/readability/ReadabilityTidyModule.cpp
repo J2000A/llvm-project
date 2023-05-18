@@ -27,6 +27,7 @@
 #include "ImplicitBoolConversionCheck.h"
 #include "InconsistentDeclarationParameterNameCheck.h"
 #include "IsolateDeclarationCheck.h"
+#include "LogicalConnectorReplacementCheck.h"
 #include "MagicNumbersCheck.h"
 #include "MakeMemberFunctionConstCheck.h"
 #include "MisleadingIndentationCheck.h"
@@ -99,6 +100,8 @@ public:
         "readability-inconsistent-declaration-parameter-name");
     CheckFactories.registerCheck<IsolateDeclarationCheck>(
         "readability-isolate-declaration");
+    CheckFactories.registerCheck<LogicalConnectorReplacementCheck>(
+        "readability-logical-connector-replacement");
     CheckFactories.registerCheck<MagicNumbersCheck>(
         "readability-magic-numbers");
     CheckFactories.registerCheck<MakeMemberFunctionConstCheck>(

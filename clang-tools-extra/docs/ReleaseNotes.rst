@@ -177,6 +177,11 @@ New checks
   directives by analyzing ``#if`` conditions, such as ``#if 0`` and
   ``#if 1``, etc.
 
+- New :doc:`readability-logical-connector-replacement
+  <clang-tidy/checks/readability/logical-connector-replacement>` check.
+
+  FIXME: add release notes.
+
 - New :doc:`readability-operators-representation
   <clang-tidy/checks/readability/operators-representation>` check.
 
