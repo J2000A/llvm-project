@@ -1,11 +1,3 @@
-//===--- UnaryOperatorInversionCheck.cpp - clang-tidy ---------------------===//
-//
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-//
-//===----------------------------------------------------------------------===//
-
 #include "UnaryOperatorInversionCheck.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
@@ -32,7 +24,7 @@ void UnaryOperatorInversionCheck::check(const MatchFinder::MatchResult &Result) 
   size_t Length = EndPtr - StartPtr;
   std::string Expression(StartPtr, Length);
   // Invert the expression with the unary operator
-  std::string Replacement = "!(" + Expression + ")" " /* Inverted if statement */";
+  std::string Replacement = "!(" + Expression + ")" + " /* [MUTATION] Inverted if statement */";
   diag(Start, "If Statement %0 was inverted")
       << Expression
       << FixItHint::CreateReplacement(Range, Replacement);
