@@ -188,6 +188,11 @@ New checks
 
   FIXME: add release notes.
 
+- New :doc:`readability-unary-operator-inversion
+  <clang-tidy/checks/readability/unary-operator-inversion>` check.
+
+  FIXME: add release notes.
+
 New check aliases
 ^^^^^^^^^^^^^^^^^
 

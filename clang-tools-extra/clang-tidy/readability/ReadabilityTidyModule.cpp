@@ -51,6 +51,7 @@
 #include "StaticDefinitionInAnonymousNamespaceCheck.h"
 #include "StringCompareCheck.h"
 #include "SuspiciousCallArgumentCheck.h"
+#include "UnaryOperatorInversionCheck.h"
 #include "UniqueptrDeleteReleaseCheck.h"
 #include "UppercaseLiteralSuffixCheck.h"
 #include "UseAnyOfAllOfCheck.h"
@@ -145,6 +146,8 @@ public:
         "readability-simplify-boolean-expr");
     CheckFactories.registerCheck<SuspiciousCallArgumentCheck>(
         "readability-suspicious-call-argument");
+    CheckFactories.registerCheck<UnaryOperatorInversionCheck>(
+        "readability-unary-operator-inversion");
     CheckFactories.registerCheck<UniqueptrDeleteReleaseCheck>(
         "readability-uniqueptr-delete-release");
     CheckFactories.registerCheck<UppercaseLiteralSuffixCheck>(

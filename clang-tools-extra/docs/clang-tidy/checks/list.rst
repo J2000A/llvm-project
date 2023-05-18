@@ -377,6 +377,7 @@ Clang-Tidy Checks
    `readability-static-definition-in-anonymous-namespace <readability/static-definition-in-anonymous-namespace.html>`_, "Yes"
    `readability-string-compare <readability/string-compare.html>`_, "Yes"
    `readability-suspicious-call-argument <readability/suspicious-call-argument.html>`_,
+   `readability-unary-operator-inversion <readability/unary-operator-inversion.html>`_, "Yes"
    `readability-uniqueptr-delete-release <readability/uniqueptr-delete-release.html>`_, "Yes"
    `readability-uppercase-literal-suffix <readability/uppercase-literal-suffix.html>`_, "Yes"
    `readability-use-anyofallof <readability/use-anyofallof.html>`_,
