@@ -183,6 +183,11 @@ New checks
   Enforces consistent token representation for invoked binary, unary and
   overloaded operators in C++ code.
 
+- New :doc:`readability-relational-operator-replacement
+  <clang-tidy/checks/readability/relational-operator-replacement>` check.
+
+  FIXME: add release notes.
+
 - New :doc:`readability-remove-function-body
   <clang-tidy/checks/readability/remove-function-body>` check.
 

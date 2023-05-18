@@ -44,6 +44,7 @@
 #include "RedundantSmartptrGetCheck.h"
 #include "RedundantStringCStrCheck.h"
 #include "RedundantStringInitCheck.h"
+#include "RelationalOperatorReplacementCheck.h"
 #include "RemoveFunctionBodyCheck.h"
 #include "SimplifyBooleanExprCheck.h"
 #include "SimplifySubscriptExprCheck.h"
@@ -118,6 +119,8 @@ public:
         "readability-redundant-member-init");
     CheckFactories.registerCheck<RedundantPreprocessorCheck>(
         "readability-redundant-preprocessor");
+    CheckFactories.registerCheck<RelationalOperatorReplacementCheck>(
+        "readability-relational-operator-replacement");
     CheckFactories.registerCheck<RemoveFunctionBodyCheck>(
         "readability-remove-function-body");
     CheckFactories.registerCheck<SimplifySubscriptExprCheck>(
