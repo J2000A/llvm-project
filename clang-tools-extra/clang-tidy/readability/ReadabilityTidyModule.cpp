@@ -13,6 +13,7 @@
 #include "AvoidUnconditionalPreprocessorIfCheck.h"
 #include "BracesAroundStatementsCheck.h"
 #include "ConstReturnTypeCheck.h"
+#include "ConstantReplacementCheck.h"
 #include "ContainerContainsCheck.h"
 #include "ContainerDataPointerCheck.h"
 #include "ContainerSizeEmptyCheck.h"
@@ -72,6 +73,8 @@ public:
         "readability-braces-around-statements");
     CheckFactories.registerCheck<ConstReturnTypeCheck>(
         "readability-const-return-type");
+    CheckFactories.registerCheck<ConstantReplacementCheck>(
+        "readability-constant-replacement");
     CheckFactories.registerCheck<ContainerContainsCheck>(
         "readability-container-contains");
     CheckFactories.registerCheck<ContainerDataPointerCheck>(

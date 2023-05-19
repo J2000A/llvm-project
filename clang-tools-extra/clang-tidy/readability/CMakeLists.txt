@@ -8,6 +8,7 @@ add_clang_library(clangTidyReadabilityModule
   AvoidUnconditionalPreprocessorIfCheck.cpp
   BracesAroundStatementsCheck.cpp
   ConstReturnTypeCheck.cpp
+  ConstantReplacementCheck.cpp
   ContainerContainsCheck.cpp
   ContainerDataPointerCheck.cpp
   ContainerSizeEmptyCheck.cpp

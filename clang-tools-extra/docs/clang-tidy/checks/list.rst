@@ -339,6 +339,7 @@ Clang-Tidy Checks
    `readability-avoid-unconditional-preprocessor-if <readability/avoid-unconditional-preprocessor-if.html>`_,
    `readability-braces-around-statements <readability/braces-around-statements.html>`_, "Yes"
    `readability-const-return-type <readability/const-return-type.html>`_, "Yes"
+   `readability-constant-replacement <readability/constant-replacement.html>`_, "Yes"
    `readability-container-contains <readability/container-contains.html>`_, "Yes"
    `readability-container-data-pointer <readability/container-data-pointer.html>`_, "Yes"
    `readability-container-size-empty <readability/container-size-empty.html>`_, "Yes"
