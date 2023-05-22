@@ -203,6 +203,11 @@ New checks
 
   FIXME: add release notes.
 
+- New :doc:`readability-remove-thread
+  <clang-tidy/checks/readability/remove-thread>` check.
+
+  FIXME: add release notes.
+
 - New :doc:`readability-unary-operator-inversion
   <clang-tidy/checks/readability/unary-operator-inversion>` check.
 
