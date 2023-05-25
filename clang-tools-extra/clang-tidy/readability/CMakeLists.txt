@@ -46,6 +46,7 @@ add_clang_library(clangTidyReadabilityModule
   RelationalOperatorReplacementCheck.cpp
   RemoveFunctionBodyCheck.cpp
   RemoveThreadCheck.cpp
+  RemoveThreadWrapperCheck.cpp
   SimplifyBooleanExprCheck.cpp
   SimplifySubscriptExprCheck.cpp
   StaticAccessedThroughInstanceCheck.cpp

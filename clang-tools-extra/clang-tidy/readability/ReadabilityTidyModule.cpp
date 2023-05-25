@@ -49,6 +49,7 @@
 #include "RelationalOperatorReplacementCheck.h"
 #include "RemoveFunctionBodyCheck.h"
 #include "RemoveThreadCheck.h"
+#include "RemoveThreadWrapperCheck.h"
 #include "SimplifyBooleanExprCheck.h"
 #include "SimplifySubscriptExprCheck.h"
 #include "StaticAccessedThroughInstanceCheck.h"
@@ -132,6 +133,8 @@ public:
         "readability-remove-function-body");
     CheckFactories.registerCheck<RemoveThreadCheck>(
         "readability-remove-thread");
+    CheckFactories.registerCheck<RemoveThreadWrapperCheck>(
+        "readability-remove-thread-wrapper");
     CheckFactories.registerCheck<SimplifySubscriptExprCheck>(
         "readability-simplify-subscript-expr");
     CheckFactories.registerCheck<StaticAccessedThroughInstanceCheck>(

@@ -374,6 +374,7 @@ Clang-Tidy Checks
    `readability-redundant-string-init <readability/redundant-string-init.html>`_, "Yes"
    `readability-relational-operator-replacement <readability/relational-operator-replacement.html>`_, "Yes"
    `readability-remove-function-body <readability/remove-function-body.html>`_, "Yes"
+   `readability-remove-thread-wrapper <readability/remove-thread-wrapper.html>`_, "Yes"
    `readability-remove-thread <readability/remove-thread.html>`_, "Yes"
    `readability-simplify-boolean-expr <readability/simplify-boolean-expr.html>`_, "Yes"
    `readability-simplify-subscript-expr <readability/simplify-subscript-expr.html>`_, "Yes"
