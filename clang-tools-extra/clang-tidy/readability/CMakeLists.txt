@@ -8,7 +8,6 @@ add_clang_library(clangTidyReadabilityModule
   AvoidUnconditionalPreprocessorIfCheck.cpp
   BracesAroundStatementsCheck.cpp
   ConstReturnTypeCheck.cpp
-  ConstantReplacementCheck.cpp
   ContainerContainsCheck.cpp
   ContainerDataPointerCheck.cpp
   ContainerSizeEmptyCheck.cpp
@@ -23,7 +22,6 @@ add_clang_library(clangTidyReadabilityModule
   ImplicitBoolConversionCheck.cpp
   InconsistentDeclarationParameterNameCheck.cpp
   IsolateDeclarationCheck.cpp
-  LogicalConnectorReplacementCheck.cpp
   MagicNumbersCheck.cpp
   MakeMemberFunctionConstCheck.cpp
   MisleadingIndentationCheck.cpp
@@ -43,17 +41,12 @@ add_clang_library(clangTidyReadabilityModule
   RedundantSmartptrGetCheck.cpp
   RedundantStringCStrCheck.cpp
   RedundantStringInitCheck.cpp
-  RelationalOperatorReplacementCheck.cpp
-  RemoveFunctionBodyCheck.cpp
-  RemoveThreadCheck.cpp
-  RemoveThreadWrapperCheck.cpp
   SimplifyBooleanExprCheck.cpp
   SimplifySubscriptExprCheck.cpp
   StaticAccessedThroughInstanceCheck.cpp
   StaticDefinitionInAnonymousNamespaceCheck.cpp
   StringCompareCheck.cpp
   SuspiciousCallArgumentCheck.cpp
-  UnaryOperatorInversionCheck.cpp
   UniqueptrDeleteReleaseCheck.cpp
   UppercaseLiteralSuffixCheck.cpp
   UseAnyOfAllOfCheck.cpp

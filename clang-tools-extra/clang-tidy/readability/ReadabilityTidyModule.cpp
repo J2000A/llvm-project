@@ -13,7 +13,6 @@
 #include "AvoidUnconditionalPreprocessorIfCheck.h"
 #include "BracesAroundStatementsCheck.h"
 #include "ConstReturnTypeCheck.h"
-#include "ConstantReplacementCheck.h"
 #include "ContainerContainsCheck.h"
 #include "ContainerDataPointerCheck.h"
 #include "ContainerSizeEmptyCheck.h"
@@ -28,7 +27,6 @@
 #include "ImplicitBoolConversionCheck.h"
 #include "InconsistentDeclarationParameterNameCheck.h"
 #include "IsolateDeclarationCheck.h"
-#include "LogicalConnectorReplacementCheck.h"
 #include "MagicNumbersCheck.h"
 #include "MakeMemberFunctionConstCheck.h"
 #include "MisleadingIndentationCheck.h"
@@ -46,17 +44,12 @@
 #include "RedundantSmartptrGetCheck.h"
 #include "RedundantStringCStrCheck.h"
 #include "RedundantStringInitCheck.h"
-#include "RelationalOperatorReplacementCheck.h"
-#include "RemoveFunctionBodyCheck.h"
-#include "RemoveThreadCheck.h"
-#include "RemoveThreadWrapperCheck.h"
 #include "SimplifyBooleanExprCheck.h"
 #include "SimplifySubscriptExprCheck.h"
 #include "StaticAccessedThroughInstanceCheck.h"
 #include "StaticDefinitionInAnonymousNamespaceCheck.h"
 #include "StringCompareCheck.h"
 #include "SuspiciousCallArgumentCheck.h"
-#include "UnaryOperatorInversionCheck.h"
 #include "UniqueptrDeleteReleaseCheck.h"
 #include "UppercaseLiteralSuffixCheck.h"
 #include "UseAnyOfAllOfCheck.h"
@@ -75,8 +68,6 @@ public:
         "readability-braces-around-statements");
     CheckFactories.registerCheck<ConstReturnTypeCheck>(
         "readability-const-return-type");
-    CheckFactories.registerCheck<ConstantReplacementCheck>(
-        "readability-constant-replacement");
     CheckFactories.registerCheck<ContainerContainsCheck>(
         "readability-container-contains");
     CheckFactories.registerCheck<ContainerDataPointerCheck>(
@@ -105,8 +96,6 @@ public:
         "readability-inconsistent-declaration-parameter-name");
     CheckFactories.registerCheck<IsolateDeclarationCheck>(
         "readability-isolate-declaration");
-    CheckFactories.registerCheck<LogicalConnectorReplacementCheck>(
-        "readability-logical-connector-replacement");
     CheckFactories.registerCheck<MagicNumbersCheck>(
         "readability-magic-numbers");
     CheckFactories.registerCheck<MakeMemberFunctionConstCheck>(
@@ -127,14 +116,6 @@ public:
         "readability-redundant-member-init");
     CheckFactories.registerCheck<RedundantPreprocessorCheck>(
         "readability-redundant-preprocessor");
-    CheckFactories.registerCheck<RelationalOperatorReplacementCheck>(
-        "readability-relational-operator-replacement");
-    CheckFactories.registerCheck<RemoveFunctionBodyCheck>(
-        "readability-remove-function-body");
-    CheckFactories.registerCheck<RemoveThreadCheck>(
-        "readability-remove-thread");
-    CheckFactories.registerCheck<RemoveThreadWrapperCheck>(
-        "readability-remove-thread-wrapper");
     CheckFactories.registerCheck<SimplifySubscriptExprCheck>(
         "readability-simplify-subscript-expr");
     CheckFactories.registerCheck<StaticAccessedThroughInstanceCheck>(
@@ -161,8 +142,6 @@ public:
         "readability-simplify-boolean-expr");
     CheckFactories.registerCheck<SuspiciousCallArgumentCheck>(
         "readability-suspicious-call-argument");
-    CheckFactories.registerCheck<UnaryOperatorInversionCheck>(
-        "readability-unary-operator-inversion");
     CheckFactories.registerCheck<UniqueptrDeleteReleaseCheck>(
         "readability-uniqueptr-delete-release");
     CheckFactories.registerCheck<UppercaseLiteralSuffixCheck>(
