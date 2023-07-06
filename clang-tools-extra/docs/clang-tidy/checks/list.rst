@@ -345,7 +345,6 @@ Clang-Tidy Checks
    `readability-avoid-unconditional-preprocessor-if <readability/avoid-unconditional-preprocessor-if.html>`_,
    `readability-braces-around-statements <readability/braces-around-statements.html>`_, "Yes"
    `readability-const-return-type <readability/const-return-type.html>`_, "Yes"
-   `readability-constant-replacement <readability/constant-replacement.html>`_, "Yes"
    `readability-container-contains <readability/container-contains.html>`_, "Yes"
    `readability-container-data-pointer <readability/container-data-pointer.html>`_, "Yes"
    `readability-container-size-empty <readability/container-size-empty.html>`_, "Yes"
@@ -360,7 +359,6 @@ Clang-Tidy Checks
    `readability-implicit-bool-conversion <readability/implicit-bool-conversion.html>`_, "Yes"
    `readability-inconsistent-declaration-parameter-name <readability/inconsistent-declaration-parameter-name.html>`_, "Yes"
    `readability-isolate-declaration <readability/isolate-declaration.html>`_, "Yes"
-   `readability-logical-connector-replacement <readability/logical-connector-replacement.html>`_, "Yes"
    `readability-magic-numbers <readability/magic-numbers.html>`_,
    `readability-make-member-function-const <readability/make-member-function-const.html>`_, "Yes"
    `readability-misleading-indentation <readability/misleading-indentation.html>`_,
@@ -378,17 +376,12 @@ Clang-Tidy Checks
    `readability-redundant-smartptr-get <readability/redundant-smartptr-get.html>`_, "Yes"
    `readability-redundant-string-cstr <readability/redundant-string-cstr.html>`_, "Yes"
    `readability-redundant-string-init <readability/redundant-string-init.html>`_, "Yes"
-   `readability-relational-operator-replacement <readability/relational-operator-replacement.html>`_, "Yes"
-   `readability-remove-function-body <readability/remove-function-body.html>`_, "Yes"
-   `readability-remove-thread-wrapper <readability/remove-thread-wrapper.html>`_, "Yes"
-   `readability-remove-thread <readability/remove-thread.html>`_, "Yes"
    `readability-simplify-boolean-expr <readability/simplify-boolean-expr.html>`_, "Yes"
    `readability-simplify-subscript-expr <readability/simplify-subscript-expr.html>`_, "Yes"
    `readability-static-accessed-through-instance <readability/static-accessed-through-instance.html>`_, "Yes"
    `readability-static-definition-in-anonymous-namespace <readability/static-definition-in-anonymous-namespace.html>`_, "Yes"
    `readability-string-compare <readability/string-compare.html>`_, "Yes"
    `readability-suspicious-call-argument <readability/suspicious-call-argument.html>`_,
-   `readability-unary-operator-inversion <readability/unary-operator-inversion.html>`_, "Yes"
    `readability-uniqueptr-delete-release <readability/uniqueptr-delete-release.html>`_, "Yes"
    `readability-uppercase-literal-suffix <readability/uppercase-literal-suffix.html>`_, "Yes"
    `readability-use-anyofallof <readability/use-anyofallof.html>`_,
@@ -496,7 +489,7 @@ Clang-Tidy Checks
    `cppcoreguidelines-noexcept-move-operations <cppcoreguidelines/noexcept-move-operations.html>`_, `performance-noexcept-move-constructor <performance/noexcept-move-constructor.html>`_, "Yes"
    `cppcoreguidelines-noexcept-swap <cppcoreguidelines/noexcept-swap.html>`_, `performance-noexcept-swap <performance/noexcept-swap.html>`_, "Yes"
    `cppcoreguidelines-non-private-member-variables-in-classes <cppcoreguidelines/non-private-member-variables-in-classes.html>`_, `misc-non-private-member-variables-in-classes <misc/non-private-member-variables-in-classes.html>`_,
-   `cppcoreguidelines-use-default-member-init <cppcoreguidelines/use-default-member-init.html>`_, `modernize-use-default-member-init <modernize/use-default-member-init.html>`_, "Yes"
+   `cppcoreguidelines-use-default-member-init <cppcoreguidelines/use-default-member-init.html>`_, `modernize-use-default-member-init <modernize/use-default-member-init.html>`_,
    `fuchsia-header-anon-namespaces <fuchsia/header-anon-namespaces.html>`_, `google-build-namespaces <google/build-namespaces.html>`_,
    `google-readability-braces-around-statements <google/readability-braces-around-statements.html>`_, `readability-braces-around-statements <readability/braces-around-statements.html>`_, "Yes"
    `google-readability-function-size <google/readability-function-size.html>`_, `readability-function-size <readability/function-size.html>`_,
