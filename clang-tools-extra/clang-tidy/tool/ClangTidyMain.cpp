@@ -169,6 +169,13 @@ well.
 )"),
                                cl::init(false), cl::cat(ClangTidyCategory));
 
+static cl::opt<bool> FixWarningsIgnoreErrors("fix-warnings", desc(R"(
+Apply suggested fixes even if compilation
+errors were found. If compiler errors have
+attached fix-its, clang-tidy will ignore them.
+)"),
+                               cl::init(false), cl::cat(ClangTidyCategory));
+
 static cl::opt<bool> FixNotes("fix-notes", desc(R"(
 If a warning has no fix, but a single fix can
 be found through an associated diagnostic note,
@@ -276,6 +283,13 @@ Run clang-tidy in quiet mode. This suppresses
 printing statistics about ignored warnings and
 warnings treated as errors if the respective
 options are specified.
+)"),
+                           cl::init(false), cl::cat(ClangTidyCategory));
+
+static cl::opt<bool> QuietReturn("quiet-return", desc(R"(
+If compiler errors have been found return 0
+instead of 1. Specifying this flag will implicitly
+enable the '--quiet' flag.
 )"),
                            cl::init(false), cl::cat(ClangTidyCategory));
 
@@ -523,6 +537,10 @@ int clangTidyMain(int argc, const char **argv) {
   if (cl::Option *LoadOpt = cl::getRegisteredOptions().lookup("load"))
     LoadOpt->addCategory(ClangTidyCategory);
 
+  // Implictly activate Quiet when QuietReturn is enabled
+  if (QuietReturn)
+    Quiet = true;
+
   llvm::Expected<CommonOptionsParser> OptionsParser =
       CommonOptionsParser::create(argc, argv, ClangTidyCategory,
                                   cl::ZeroOrMore);
@@ -668,11 +686,12 @@ int clangTidyMain(int argc, const char **argv) {
   });
 
   // --fix-errors and --fix-notes imply --fix.
-  FixBehaviour Behaviour = FixNotes             ? FB_FixNotes
-                           : (Fix || FixErrors) ? FB_Fix
-                                                : FB_NoFix;
+  FixBehaviour Behaviour = FixNotes                     ? FB_FixNotes
+                           : (Fix || FixErrors)         ? FB_Fix
+                           : FixWarningsIgnoreErrors    ? FB_FixWarningsIgnoreErrors
+                                                        : FB_NoFix;
 
-  const bool DisableFixes = FoundErrors && !FixErrors;
+  const bool DisableFixes = FoundErrors && (!FixErrors || !FixWarningsIgnoreErrors);
 
   unsigned WErrorCount = 0;
 
@@ -691,7 +710,7 @@ int clangTidyMain(int argc, const char **argv) {
 
   if (!Quiet) {
     printStats(Context.getStats());
-    if (DisableFixes && Behaviour != FB_NoFix)
+    if (DisableFixes && (Behaviour != FB_NoFix || Behaviour != FB_FixWarningsIgnoreErrors))
       llvm::errs()
           << "Found compiler errors, but -fix-errors was not specified.\n"
              "Fixes have NOT been applied.\n\n";
@@ -703,7 +722,7 @@ int clangTidyMain(int argc, const char **argv) {
       llvm::errs() << WErrorCount << " warning" << Plural << " treated as error"
                    << Plural << "\n";
     }
-    return 1;
+    return QuietReturn ? 0 : 1;
   }
 
   if (FoundErrors) {
@@ -712,11 +731,11 @@ int clangTidyMain(int argc, const char **argv) {
     //   b. when a fix has been applied for all errors
     //   c. some other condition.
     // For now always returning zero when -fix-errors is used.
-    if (FixErrors)
+    if (FixErrors || FixWarningsIgnoreErrors)
       return 0;
     if (!Quiet)
       llvm::errs() << "Found compiler error(s).\n";
-    return 1;
+    return QuietReturn ? 0 : 1;
   }
 
   return 0;

@@ -167,6 +167,9 @@ An overview of all the command-line options:
                                      errors were found. If compiler errors have
                                      attached fix-its, clang-tidy will apply them as
                                      well.
+    --fix-warnings                 - Apply suggested fixes even if compilation
+                                     errors were found. If compiler errors have
+                                     attached fix-its, clang-tidy will ignore them.
     --fix-notes                    - If a warning has no fix, but a single fix can
                                      be found through an associated diagnostic note,
                                      apply the fix.
@@ -207,6 +210,9 @@ An overview of all the command-line options:
                                      printing statistics about ignored warnings and
                                      warnings treated as errors if the respective
                                      options are specified.
+    --quiet-return                 - If compiler errors have been found return 0
+                                     instead of 1. Specifying this flag will implicitly
+                                     enable the '--quiet' flag.
     --store-check-profile=<prefix> - By default reports are printed in tabulated
                                      format to stderr. When this option is passed,
                                      these per-TU profiles are instead stored as JSON.

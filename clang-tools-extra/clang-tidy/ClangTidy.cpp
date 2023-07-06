@@ -150,15 +150,15 @@ public:
                                    Repl.getLength(), Repl.getReplacementText());
             Replacements &Replacements = FileReplacements[R.getFilePath()];
             llvm::Error Err = Replacements.add(R);
-            if (Err) {
+            if (Err && ApplyFixes != FB_FixWarningsIgnoreErrors) {
               // FIXME: Implement better conflict handling.
               llvm::errs() << "Trying to resolve conflict: "
-                           << llvm::toString(std::move(Err)) << "\n";
+                          << llvm::toString(std::move(Err)) << "\n";
               unsigned NewOffset =
                   Replacements.getShiftedCodePosition(R.getOffset());
               unsigned NewLength = Replacements.getShiftedCodePosition(
-                                       R.getOffset() + R.getLength()) -
-                                   NewOffset;
+                                      R.getOffset() + R.getLength()) -
+                                  NewOffset;
               if (NewLength == R.getLength()) {
                 R = Replacement(R.getFilePath(), NewOffset, NewLength,
                                 R.getReplacementText());
@@ -169,6 +169,9 @@ public:
                 llvm::errs()
                     << "Can't resolve conflict, skipping the replacement.\n";
               }
+            } else if (Err && ApplyFixes == FB_FixWarningsIgnoreErrors) {
+              llvm::errs()
+                    << "Ignoring conflict, skipping the replacement.\n";
             } else {
               CanBeApplied = true;
               ++AppliedFixes;

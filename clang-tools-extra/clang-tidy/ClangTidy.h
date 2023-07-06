@@ -97,6 +97,8 @@ enum FixBehaviour {
   FB_NoFix,
   /// Only apply fixes added to warnings.
   FB_Fix,
+  /// Only apply fixes added to warnings and ignore compiler errors
+  FB_FixWarningsIgnoreErrors,
   /// Apply fixes found in notes.
   FB_FixNotes
 };
