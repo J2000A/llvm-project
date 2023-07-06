@@ -213,46 +213,11 @@ New checks
   directives by analyzing ``#if`` conditions, such as ``#if 0`` and
   ``#if 1``, etc.
 
-- New :doc:`readability-constant-replacement
-  <clang-tidy/checks/readability/constant-replacement>` check.
-
-  FIXME: add release notes.
-
-- New :doc:`readability-logical-connector-replacement
-  <clang-tidy/checks/readability/logical-connector-replacement>` check.
-
-  FIXME: add release notes.
-
 - New :doc:`readability-operators-representation
   <clang-tidy/checks/readability/operators-representation>` check.
 
   Enforces consistent token representation for invoked binary, unary and
   overloaded operators in C++ code.
-
-- New :doc:`readability-relational-operator-replacement
-  <clang-tidy/checks/readability/relational-operator-replacement>` check.
-
-  FIXME: add release notes.
-
-- New :doc:`readability-remove-function-body
-  <clang-tidy/checks/readability/remove-function-body>` check.
-
-  FIXME: add release notes.
-
-- New :doc:`readability-remove-thread
-  <clang-tidy/checks/readability/remove-thread>` check.
-
-  FIXME: add release notes.
-
-- New :doc:`readability-remove-thread-wrapper
-  <clang-tidy/checks/readability/remove-thread-wrapper>` check.
-
-  FIXME: add release notes.
-
-- New :doc:`readability-unary-operator-inversion
-  <clang-tidy/checks/readability/unary-operator-inversion>` check.
-
-  FIXME: add release notes.
 
 New check aliases
 ^^^^^^^^^^^^^^^^^
