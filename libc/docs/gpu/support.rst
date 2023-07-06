@@ -12,7 +12,7 @@ Supported Functions
 
 The following functions and headers are supported at least partially on the
 device. Some functions are implemented fully on the GPU, while others require a
-`remote procedure call <libc_gpu_rpc>`.
+`remote procedure call <libc_gpu_rpc>`_.
 
 ctype.h
 -------
@@ -85,17 +85,45 @@ stdlib.h
 Function Name  Available  RPC Required
 =============  =========  ============
 abs            |check|
-atoi           
-atof           
-atol           
-atoll          
+atoi           |check|
+atof           |check|
+atol           |check|
+atoll          |check|
+exit           |check|    |check|
 labs           |check|
 llabs          |check|
-strtod         
-strtof         
-strtol         
-strtold        
-strtoll        
-strtoul        
-strtoull       
+div            |check|
+ldiv           |check|
+lldiv          |check|
+strtod         |check|
+strtof         |check|
+strtol         |check|
+strtold        |check|
+strtoll        |check|
+strtoul        |check|
+strtoull       |check|
+=============  =========  ============
+
+inttypes.h
+--------
+
+=============  =========  ============
+Function Name  Available  RPC Required
+=============  =========  ============
+imaxabs        |check|
+imaxdiv        |check|
+strtoimax      |check|
+strtoumax      |check|
+=============  =========  ============
+
+stdio.h
+--------
+
+=============  =========  ============
+Function Name  Available  RPC Required
+=============  =========  ============
+puts           |check|    |check|
+fputs          |check|    |check|
+fclose         |check|    |check|
+fopen          |check|    |check|
 =============  =========  ============

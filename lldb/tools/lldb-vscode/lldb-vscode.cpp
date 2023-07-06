@@ -1471,6 +1471,13 @@ void request_initialize(const llvm::json::Object &request) {
 
   g_vsc.debugger =
       lldb::SBDebugger::Create(source_init_file, log_cb, nullptr);
+  auto cmd = g_vsc.debugger.GetCommandInterpreter().AddMultiwordCommand(
+      "lldb-vscode", nullptr);
+  cmd.AddCommand(
+      "startDebugging", &g_vsc.start_debugging_request_handler,
+      "Sends a startDebugging request from the debug adapter to the client to "
+      "start a child debug session of the same type as the caller.");
+
   g_vsc.progress_event_thread = std::thread(ProgressEventThreadFunction);
 
   // Start our event thread so we can receive events from the debugger, target,
@@ -1564,7 +1571,8 @@ void request_initialize(const llvm::json::Object &request) {
   g_vsc.SendJSON(llvm::json::Value(std::move(response)));
 }
 
-llvm::Error request_runInTerminal(const llvm::json::Object &launch_request) {
+llvm::Error request_runInTerminal(const llvm::json::Object &launch_request,
+                                  const uint64_t timeout_seconds) {
   g_vsc.is_attach = true;
   lldb::SBAttachInfo attach_info;
 
@@ -1582,13 +1590,15 @@ llvm::Error request_runInTerminal(const llvm::json::Object &launch_request) {
 #endif
   llvm::json::Object reverse_request = CreateRunInTerminalReverseRequest(
       launch_request, g_vsc.debug_adaptor_path, comm_file.m_path, debugger_pid);
-  llvm::json::Object reverse_response;
-  lldb_vscode::PacketStatus status =
-      g_vsc.SendReverseRequest(reverse_request, reverse_response);
-  if (status != lldb_vscode::PacketStatus::Success)
-    return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                   "Process cannot be launched by the IDE. %s",
-                                   comm_channel.GetLauncherError().c_str());
+  g_vsc.SendReverseRequest("runInTerminal", std::move(reverse_request),
+                           [](llvm::Expected<llvm::json::Value> value) {
+                             if (!value) {
+                               llvm::Error err = value.takeError();
+                               llvm::errs()
+                                   << "runInTerminal request failed: "
+                                   << llvm::toString(std::move(err)) << "\n";
+                             }
+                           });
 
   if (llvm::Expected<lldb::pid_t> pid = comm_channel.GetLauncherPid())
     attach_info.SetProcessID(*pid);
@@ -1676,7 +1686,7 @@ lldb::SBError LaunchProcess(const llvm::json::Object &request) {
   const uint64_t timeout_seconds = GetUnsigned(arguments, "timeout", 30);
 
   if (GetBoolean(arguments, "runInTerminal", false)) {
-    if (llvm::Error err = request_runInTerminal(request))
+    if (llvm::Error err = request_runInTerminal(request, timeout_seconds))
       error.SetErrorString(llvm::toString(std::move(err)).c_str());
   } else if (launchCommands.empty()) {
     // Disable async events so the launch will be successful when we return from
@@ -1685,6 +1695,9 @@ lldb::SBError LaunchProcess(const llvm::json::Object &request) {
     g_vsc.target.Launch(launch_info, error);
     g_vsc.debugger.SetAsync(true);
   } else {
+    // Set the launch info so that run commands can access the configured
+    // launch details.
+    g_vsc.target.SetLaunchInfo(launch_info);
     g_vsc.RunLLDBCommands("Running launchCommands:", launchCommands);
     // The custom commands might have created a new target so we should use the
     // selected target after these commands are run.
@@ -1963,11 +1976,13 @@ void request_restart(const llvm::json::Object &request) {
 
   // The optional `arguments` field in RestartRequest can contain an updated
   // version of the launch arguments. If there's one, use it.
-  auto request_arguments = request.getObject("arguments");
-  if (request_arguments) {
-    llvm::json::Object arguments = *request_arguments;
-    (*g_vsc.last_launch_or_attach_request)["arguments"] =
-        llvm::json::Value(std::move(arguments));
+  auto restart_arguments = request.getObject("arguments");
+  if (restart_arguments) {
+    auto launch_request_arguments = restart_arguments->getObject("arguments");
+    if (launch_request_arguments) {
+      (*g_vsc.last_launch_or_attach_request)["arguments"] =
+          llvm::json::Value(llvm::json::Object(*launch_request_arguments));
+    }
   }
 
   // Keep track of the old PID so when we get a "process exited" event from the
@@ -3462,17 +3477,13 @@ int main(int argc, char *argv[]) {
     g_vsc.output.descriptor = StreamDescriptor::from_file(new_stdout_fd, false);
   }
 
-  while (!g_vsc.sent_terminated_event) {
-    llvm::json::Object object;
-    lldb_vscode::PacketStatus status = g_vsc.GetNextObject(object);
-    if (status == lldb_vscode::PacketStatus::EndOfFile)
-      break;
-    if (status != lldb_vscode::PacketStatus::Success)
-      return 1; // Fatal error
-
-    if (!g_vsc.HandleObject(object))
-      return 1;
+  bool CleanExit = true;
+  if (auto Err = g_vsc.Loop()) {
+    if (g_vsc.log)
+      *g_vsc.log << "Transport Error: " << llvm::toString(std::move(Err))
+                 << "\n";
+    CleanExit = false;
   }
 
-  return EXIT_SUCCESS;
+  return CleanExit ? EXIT_SUCCESS : EXIT_FAILURE;
 }

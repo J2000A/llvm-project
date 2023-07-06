@@ -16,10 +16,13 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/SymbolTable.h"
 
+#include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/Dialect/OpenACC/OpenACCOpsDialect.h.inc"
 #include "mlir/Dialect/OpenACC/OpenACCOpsEnums.h.inc"
 #include "mlir/Dialect/OpenACC/OpenACCTypeInterfaces.h.inc"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #define GET_TYPEDEF_CLASSES
@@ -35,7 +38,7 @@ namespace mlir {
 namespace acc {
 
 /// Enumeration used to encode the execution mapping on a loop construct.
-/// They refer directly to the OpenACC 3.1 standard:
+/// They refer directly to the OpenACC 3.3 standard:
 /// 2.9.2. gang
 /// 2.9.3. worker
 /// 2.9.4. vector

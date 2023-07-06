@@ -144,6 +144,8 @@ private:
     if (Previous.Previous) {
       if (Previous.Previous->Tok.isLiteral())
         return false;
+      if (Previous.Previous->is(tok::r_brace))
+        return false;
       if (Previous.Previous->is(tok::r_paren) && Contexts.size() > 1 &&
           (!Previous.Previous->MatchingParen ||
            !Previous.Previous->MatchingParen->is(
@@ -2426,10 +2428,14 @@ private:
     // If the next token after the parenthesis is a unary operator, assume
     // that this is cast, unless there are unexpected tokens inside the
     // parenthesis.
-    bool NextIsUnary =
-        Tok.Next->isUnaryOperator() || Tok.Next->isOneOf(tok::amp, tok::star);
-    if (!NextIsUnary || Tok.Next->is(tok::plus) ||
+    const bool NextIsAmpOrStar = Tok.Next->isOneOf(tok::amp, tok::star);
+    if (!(Tok.Next->isUnaryOperator() || NextIsAmpOrStar) ||
+        Tok.Next->is(tok::plus) ||
         !Tok.Next->Next->isOneOf(tok::identifier, tok::numeric_constant)) {
+      return false;
+    }
+    if (NextIsAmpOrStar &&
+        (Tok.Next->Next->is(tok::numeric_constant) || Line.InPPDirective)) {
       return false;
     }
     // Search for unexpected tokens.
@@ -3122,6 +3128,7 @@ void TokenAnnotator::annotate(AnnotatedLine &Line) {
 // function declaration.
 static bool isFunctionDeclarationName(bool IsCpp, const FormatToken &Current,
                                       const AnnotatedLine &Line) {
+  assert(Current.Previous);
   auto skipOperatorName = [](const FormatToken *Next) -> const FormatToken * {
     for (; Next; Next = Next->Next) {
       if (Next->is(TT_OverloadedOperatorLParen))
@@ -3160,7 +3167,12 @@ static bool isFunctionDeclarationName(bool IsCpp, const FormatToken &Current,
   // Find parentheses of parameter list.
   const FormatToken *Next = Current.Next;
   if (Current.is(tok::kw_operator)) {
-    if (Current.Previous && Current.Previous->is(tok::coloncolon))
+    const auto *Previous = Current.Previous;
+    if (Previous->Tok.getIdentifierInfo() &&
+        !Previous->isOneOf(tok::kw_return, tok::kw_co_return)) {
+      return true;
+    }
+    if (!Previous->isOneOf(tok::star, tok::amp, tok::ampamp))
       return false;
     Next = skipOperatorName(Next);
   } else {
@@ -3291,9 +3303,11 @@ void TokenAnnotator::calculateFormattingInformation(AnnotatedLine &Line) const {
   if (AlignArrayOfStructures)
     calculateArrayInitializerColumnList(Line);
 
+  bool LineIsFunctionDeclaration = false;
   for (FormatToken *Tok = Current, *AfterLastAttribute = nullptr; Tok;
        Tok = Tok->Next) {
     if (isFunctionDeclarationName(Style.isCpp(), *Tok, Line)) {
+      LineIsFunctionDeclaration = true;
       Tok->setType(TT_FunctionDeclarationName);
       if (AfterLastAttribute &&
           mustBreakAfterAttributes(*AfterLastAttribute, Style)) {
@@ -3306,12 +3320,41 @@ void TokenAnnotator::calculateFormattingInformation(AnnotatedLine &Line) const {
       AfterLastAttribute = Tok;
   }
 
+  if (Style.isCpp() && !LineIsFunctionDeclaration) {
+    // Annotate */&/&& in `operator` function calls as binary operators.
+    for (const auto *Tok = Line.First; Tok; Tok = Tok->Next) {
+      if (Tok->isNot(tok::kw_operator))
+        continue;
+      do {
+        Tok = Tok->Next;
+      } while (Tok && Tok->isNot(TT_OverloadedOperatorLParen));
+      if (!Tok)
+        break;
+      const auto *LeftParen = Tok;
+      for (Tok = Tok->Next; Tok && Tok != LeftParen->MatchingParen;
+           Tok = Tok->Next) {
+        if (Tok->isNot(tok::identifier))
+          continue;
+        auto *Next = Tok->Next;
+        const bool NextIsBinaryOperator =
+            Next && Next->isOneOf(tok::star, tok::amp, tok::ampamp) &&
+            Next->Next && Next->Next->is(tok::identifier);
+        if (!NextIsBinaryOperator)
+          continue;
+        Next->setType(TT_BinaryOperator);
+        Tok = Next;
+      }
+    }
+  }
+
   while (Current) {
     const FormatToken *Prev = Current->Previous;
     if (Current->is(TT_LineComment)) {
       if (Prev->is(BK_BracedInit) && Prev->opensScope()) {
         Current->SpacesRequiredBefore =
             (Style.Cpp11BracedListStyle && !Style.SpacesInParentheses) ? 0 : 1;
+      } else if (Prev->is(TT_VerilogMultiLineListLParen)) {
+        Current->SpacesRequiredBefore = 0;
       } else {
         Current->SpacesRequiredBefore = Style.SpacesBeforeTrailingComments;
       }

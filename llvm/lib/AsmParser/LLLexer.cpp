@@ -158,8 +158,7 @@ static const char *isLabelTail(const char *CurPtr) {
 
 LLLexer::LLLexer(StringRef StartBuf, SourceMgr &SM, SMDiagnostic &Err,
                  LLVMContext &C)
-    : CurBuf(StartBuf), ErrorInfo(Err), SM(SM), Context(C), APFloatVal(0.0),
-      IgnoreColonInIdentifiers(false) {
+    : CurBuf(StartBuf), ErrorInfo(Err), SM(SM), Context(C) {
   CurPtr = CurBuf.begin();
 }
 
@@ -628,6 +627,8 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(amdgpu_gs);
   KEYWORD(amdgpu_ps);
   KEYWORD(amdgpu_cs);
+  KEYWORD(amdgpu_cs_chain);
+  KEYWORD(amdgpu_cs_chain_preserve);
   KEYWORD(amdgpu_kernel);
   KEYWORD(amdgpu_gfx);
   KEYWORD(tailcc);
@@ -945,7 +946,8 @@ lltok::Kind LLLexer::LexIdentifier() {
     return lltok::EmissionKind;
   }
 
-  if (Keyword == "GNU" || Keyword == "None" || Keyword == "Default") {
+  if (Keyword == "GNU" || Keyword == "Apple" || Keyword == "None" ||
+      Keyword == "Default") {
     StrVal.assign(Keyword.begin(), Keyword.end());
     return lltok::NameTableKind;
   }

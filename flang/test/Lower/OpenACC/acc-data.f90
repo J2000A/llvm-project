@@ -96,6 +96,12 @@ subroutine acc_data
 ! CHECK: acc.delete accPtr(%[[CREATE_B]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) {dataClause = 7 : i64, name = "b"}
 ! CHECK: acc.delete accPtr(%[[CREATE_C]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) {dataClause = 8 : i64, name = "c"}
 
+  !$acc data create(c) copy(b) create(a)
+  !$acc end data
+!CHECK: %[[CREATE_C:.*]] = acc.create varPtr(%[[C]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) -> !fir.ref<!fir.array<10x10xf32>> {name = "c"}
+!CHECK: %[[COPY_B:.*]] = acc.copyin varPtr(%[[B]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) -> !fir.ref<!fir.array<10x10xf32>> {dataClause = 3 : i64, name = "b"}
+!CHECK: %[[CREATE_A:.*]] = acc.create varPtr(%[[A]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) -> !fir.ref<!fir.array<10x10xf32>> {name = "a"}
+!CHECK: acc.data dataOperands(%[[CREATE_C]], %[[COPY_B]], %[[CREATE_A]] : !fir.ref<!fir.array<10x10xf32>>, !fir.ref<!fir.array<10x10xf32>>, !fir.ref<!fir.array<10x10xf32>>) {
 
   !$acc data no_create(a, b) create(zero: c)
   !$acc end data
@@ -137,6 +143,50 @@ subroutine acc_data
 ! CHECK-NEXT: }{{$}}
 ! CHECK: acc.detach accPtr(%[[ATTACH_D]] : !fir.ptr<f32>) {dataClause = 10 : i64, name = "d"}
 ! CHECK: acc.detach accPtr(%[[ATTACH_E]] : !fir.ptr<f32>) {dataClause = 10 : i64, name = "e"}
+
+  !$acc data present(a) async
+  !$acc end data
+
+! CHECK: acc.data dataOperands(%{{.*}}) {
+! CHECK: } attributes {asyncAttr}
+
+  !$acc data present(a) async(1)
+  !$acc end data
+
+! CHECK: acc.data async(%{{.*}} : i32) dataOperands(%{{.*}}) {
+! CHECK: }{{$}}
+
+  !$acc data present(a) wait
+  !$acc end data
+
+! CHECK: acc.data dataOperands(%{{.*}}) {
+! CHECK: } attributes {waitAttr}
+
+  !$acc data present(a) wait(1)
+  !$acc end data
+
+! CHECK: acc.data dataOperands(%{{.*}}) wait(%{{.*}} : i32) {
+! CHECK: }{{$}}
+
+  !$acc data present(a) wait(devnum: 0: 1)
+  !$acc end data
+
+! CHECK: acc.data dataOperands(%{{.*}}) wait_devnum(%{{.*}} : i32) wait(%{{.*}} : i32) {
+! CHECK: }{{$}}
+
+  !$acc data default(none)
+  !$acc end data
+
+! CHECK: acc.data {
+! CHECK:   acc.terminator
+! CHECK: } attributes {defaultAttr = #acc<defaultvalue none>}
+
+  !$acc data default(present)
+  !$acc end data
+
+! CHECK: acc.data {
+! CHECK:   acc.terminator
+! CHECK: } attributes {defaultAttr = #acc<defaultvalue present>}
 
 end subroutine acc_data
 

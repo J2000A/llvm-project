@@ -17,7 +17,18 @@ package(
 
 licenses(["notice"])
 
-exports_files(["LICENSE.TXT"])
+exports_files([
+    "LICENSE.TXT",
+    "cmake/modules/llvm-driver-template.cpp.in",
+    "include/llvm/CodeGen/SDNodeProperties.td",
+    "include/llvm/CodeGen/ValueTypes.td",
+    "include/llvm/Frontend/Directive/DirectiveBase.td",
+    "include/llvm/Frontend/OpenACC/ACC.td",
+    "include/llvm/Frontend/OpenMP/OMP.td",
+    "include/llvm/IR/Intrinsics.td",
+    "include/llvm/Option/OptParser.td",
+    "utils/lit/lit.py",
+])
 
 # It may be tempting to add compiler flags here, but that should be avoided.
 # The necessary warnings and other compile flags should be provided by the
@@ -274,11 +285,6 @@ cc_library(
     deps = [
         ":config",
         ":Demangle",
-        # We unconditionally depend on the custom LLVM terminfo wrapper. This
-        # will be an empty library unless terminfo is enabled, in which case it
-        # will both provide the necessary dependencies and configuration
-        # defines.
-        "@llvm_terminfo//:terminfo",
         # We unconditionally depend on the custom LLVM zlib wrapper. This will
         # be an empty library unless zlib is enabled, in which case it will
         # both provide the necessary dependencies and configuration defines.
@@ -577,16 +583,15 @@ cc_binary(
     srcs = [
         "utils/TableGen/Attributes.cpp",
         "utils/TableGen/CodeGenIntrinsics.cpp",
+        "utils/TableGen/CodeGenIntrinsics.h",
         "utils/TableGen/DirectiveEmitter.cpp",
         "utils/TableGen/IntrinsicEmitter.cpp",
         "utils/TableGen/RISCVTargetDefEmitter.cpp",
         "utils/TableGen/SDNodeProperties.cpp",
-        "utils/TableGen/TableGen.cpp",
-        "utils/TableGen/VTEmitter.cpp",
-
-        "utils/TableGen/CodeGenIntrinsics.h",
         "utils/TableGen/SDNodeProperties.h",
         "utils/TableGen/SequenceToOffsetTable.h",
+        "utils/TableGen/TableGen.cpp",
+        "utils/TableGen/VTEmitter.cpp",
     ],
     copts = llvm_copts,
     stamp = 0,
@@ -639,6 +644,7 @@ cc_binary(
         # listed here. MC uses headers produced by tablegen, so it cannot be a
         # regular dependency.
         "include/llvm/MC/*.h",
+        "include/llvm/TargetParser/SubtargetFeature.h",
     ]),
     copts = llvm_copts,
     stamp = 0,
@@ -647,6 +653,7 @@ cc_binary(
         ":Support",
         ":TableGen",
         ":TableGenGlobalISel",
+        ":TargetParser",
         ":config",
         ":llvm-tblgen-headers",
     ],
@@ -1447,6 +1454,7 @@ cc_library(
     ]),
     deps = [
         ":Analysis",
+        ":BitReader",
         ":Core",
         ":MC",
         ":Scalar",
@@ -1734,6 +1742,7 @@ cc_library(
         ":Instrumentation",
         ":MC",
         ":MCParser",
+        ":Object",
         ":ProfileData",
         ":Remarks",
         ":Scalar",
@@ -2231,6 +2240,7 @@ gentbl(
             # distinction between these two.
             "lib/Target/" + target["name"] + "/*.def",
             "lib/Target/" + target["name"] + "/*.inc",
+            "lib/Target/" + target["name"] + "/MCTargetDesc/*.def",
         ]),
         copts = llvm_copts,
         features = [
@@ -2753,6 +2763,25 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "DWARFLinkerParallel",
+    srcs = glob([
+        "lib/DWARFLinkerParallel/*.cpp",
+        "lib/DWARFLinkerParallel/*.h",
+    ]),
+    hdrs = glob(["include/llvm/DWARFLinkerParallel/*.h"]),
+    copts = llvm_copts,
+    deps = [
+        ":BinaryFormat",
+        ":CodeGen",
+        ":DWARFLinker",
+        ":DebugInfoDWARF",
+        ":MC",
+        ":Support",
+        ":TargetParser",
+    ],
+)
+
 gentbl(
     name = "DllOptionsTableGen",
     strip_include_prefix = "lib/ToolDrivers/llvm-dlltool",
@@ -3025,6 +3054,7 @@ cc_binary(
         ":CodeGen",
         ":CodeGenTypes",
         ":DWARFLinker",
+        ":DWARFLinkerParallel",
         ":DebugInfo",
         ":DebugInfoDWARF",
         ":DsymutilTableGen",
@@ -3447,6 +3477,7 @@ cc_binary(
         ":AllTargetsCodeGens",
         ":CodeGenTypes",
         ":DWARFLinker",
+        ":DWARFLinkerParallel",
         ":DebugInfoDWARF",
         ":DwarfutilOptionsTableGen",
         ":MC",
@@ -3648,6 +3679,18 @@ cc_binary(
     ],
 )
 
+gentbl(
+    name = "LibtoolDarwinOptionsTableGen",
+    strip_include_prefix = "tools/llvm-libtool-darwin",
+    tbl_outs = [(
+        "-gen-opt-parser-defs",
+        "tools/llvm-libtool-darwin/Opts.inc",
+    )],
+    tblgen = ":llvm-tblgen",
+    td_file = "tools/llvm-libtool-darwin/Opts.td",
+    td_srcs = ["include/llvm/Option/OptParser.td"],
+)
+
 cc_binary(
     name = "llvm-libtool-darwin",
     srcs = glob([
@@ -3660,8 +3703,10 @@ cc_binary(
         ":AllTargetsAsmParsers",
         ":AllTargetsCodeGens",
         ":BinaryFormat",
+        ":LibtoolDarwinOptionsTableGen",
         ":Core",
         ":Object",
+        ":Option",
         ":Support",
         ":TextAPI",
     ],

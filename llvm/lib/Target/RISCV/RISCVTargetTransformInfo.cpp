@@ -30,15 +30,16 @@ static cl::opt<unsigned> RVVRegisterWidthLMUL(
 static cl::opt<unsigned> SLPMaxVF(
     "riscv-v-slp-max-vf",
     cl::desc(
-        "Result used for getMaximumVF query which is used exclusively by "
-        "SLP vectorizer.  Defaults to 1 which disables SLP."),
-    cl::init(1), cl::Hidden);
+        "Overrides result used for getMaximumVF query which is used "
+        "exclusively by SLP vectorizer."),
+    cl::Hidden);
 
 InstructionCost RISCVTTIImpl::getLMULCost(MVT VT) {
   // TODO: Here assume reciprocal throughput is 1 for LMUL_1, it is
   // implementation-defined.
   if (!VT.isVector())
     return InstructionCost::getInvalid();
+  unsigned DLenFactor = ST->getDLenFactor();
   unsigned Cost;
   if (VT.isScalableVector()) {
     unsigned LMul;
@@ -46,13 +47,13 @@ InstructionCost RISCVTTIImpl::getLMULCost(MVT VT) {
     std::tie(LMul, Fractional) =
         RISCVVType::decodeVLMUL(RISCVTargetLowering::getLMUL(VT));
     if (Fractional)
-      Cost = 1;
+      Cost = LMul <= DLenFactor ? (DLenFactor / LMul) : 1;
     else
-      Cost = LMul;
+      Cost = (LMul * DLenFactor);
   } else {
-    Cost = VT.getSizeInBits() / ST->getRealMinVLen();
+    Cost = divideCeil(VT.getSizeInBits(), ST->getRealMinVLen() / DLenFactor);
   }
-  return std::max<unsigned>(Cost, 1);
+  return Cost;
 }
 
 InstructionCost RISCVTTIImpl::getIntImmCost(const APInt &Imm, Type *Ty,
@@ -145,8 +146,8 @@ InstructionCost RISCVTTIImpl::getIntImmCostInst(unsigned Opcode, unsigned Idx,
     Takes12BitImm = true;
     break;
   case Instruction::Mul:
-    // Negated power of 2 is a shift and a negate.
-    if (Imm.isNegatedPowerOf2())
+    // Power of 2 is a shift. Negated power of 2 is a shift and a negate.
+    if (Imm.isPowerOf2() || Imm.isNegatedPowerOf2())
       return TTI::TCC_Free;
     // FIXME: There is no MULI instruction.
     Takes12BitImm = true;
@@ -448,6 +449,8 @@ InstructionCost RISCVTTIImpl::getInterleavedMemoryOpCost(
     unsigned Opcode, Type *VecTy, unsigned Factor, ArrayRef<unsigned> Indices,
     Align Alignment, unsigned AddressSpace, TTI::TargetCostKind CostKind,
     bool UseMaskForCond, bool UseMaskForGaps) {
+  if (isa<ScalableVectorType>(VecTy))
+    return InstructionCost::getInvalid();
   auto *FVTy = cast<FixedVectorType>(VecTy);
   InstructionCost MemCost =
       getMemoryOpCost(Opcode, VecTy, Alignment, AddressSpace, CostKind);
@@ -1209,15 +1212,15 @@ unsigned RISCVTTIImpl::getEstimatedVLFor(VectorType *Ty) {
 }
 
 InstructionCost
-RISCVTTIImpl::getMinMaxReductionCost(VectorType *Ty, VectorType *CondTy,
-                                     bool IsUnsigned, FastMathFlags FMF,
+RISCVTTIImpl::getMinMaxReductionCost(Intrinsic::ID IID, VectorType *Ty,
+                                     FastMathFlags FMF,
                                      TTI::TargetCostKind CostKind) {
   if (isa<FixedVectorType>(Ty) && !ST->useRVVForFixedLengthVectors())
-    return BaseT::getMinMaxReductionCost(Ty, CondTy, IsUnsigned, FMF, CostKind);
+    return BaseT::getMinMaxReductionCost(IID, Ty, FMF, CostKind);
 
   // Skip if scalar size of Ty is bigger than ELEN.
   if (Ty->getScalarSizeInBits() > ST->getELEN())
-    return BaseT::getMinMaxReductionCost(Ty, CondTy, IsUnsigned, FMF, CostKind);
+    return BaseT::getMinMaxReductionCost(IID, Ty, FMF, CostKind);
 
   std::pair<InstructionCost, MVT> LT = getTypeLegalizationCost(Ty);
   if (Ty->getElementType()->isIntegerTy(1))
@@ -1595,6 +1598,55 @@ InstructionCost RISCVTTIImpl::getArithmeticInstrCost(
   }
 }
 
+// TODO: Deduplicate from TargetTransformInfoImplCRTPBase.
+InstructionCost RISCVTTIImpl::getPointersChainCost(
+    ArrayRef<const Value *> Ptrs, const Value *Base,
+    const TTI::PointersChainInfo &Info, Type *AccessTy,
+    TTI::TargetCostKind CostKind) {
+  InstructionCost Cost = TTI::TCC_Free;
+  // In the basic model we take into account GEP instructions only
+  // (although here can come alloca instruction, a value, constants and/or
+  // constant expressions, PHIs, bitcasts ... whatever allowed to be used as a
+  // pointer). Typically, if Base is a not a GEP-instruction and all the
+  // pointers are relative to the same base address, all the rest are
+  // either GEP instructions, PHIs, bitcasts or constants. When we have same
+  // base, we just calculate cost of each non-Base GEP as an ADD operation if
+  // any their index is a non-const.
+  // If no known dependecies between the pointers cost is calculated as a sum
+  // of costs of GEP instructions.
+  for (auto [I, V] : enumerate(Ptrs)) {
+    const auto *GEP = dyn_cast<GetElementPtrInst>(V);
+    if (!GEP)
+      continue;
+    if (Info.isSameBase() && V != Base) {
+      if (GEP->hasAllConstantIndices())
+        continue;
+      // If the chain is unit-stride and BaseReg + stride*i is a legal
+      // addressing mode, then presume the base GEP is sitting around in a
+      // register somewhere and check if we can fold the offset relative to
+      // it.
+      unsigned Stride = DL.getTypeStoreSize(AccessTy);
+      if (Info.isUnitStride() &&
+          isLegalAddressingMode(AccessTy,
+                                /* BaseGV */ nullptr,
+                                /* BaseOffset */ Stride * I,
+                                /* HasBaseReg */ true,
+                                /* Scale */ 0,
+                                GEP->getType()->getPointerAddressSpace()))
+        continue;
+      Cost += getArithmeticInstrCost(Instruction::Add, GEP->getType(), CostKind,
+                                     {TTI::OK_AnyValue, TTI::OP_None},
+                                     {TTI::OK_AnyValue, TTI::OP_None},
+                                     std::nullopt);
+    } else {
+      SmallVector<const Value *> Indices(GEP->indices());
+      Cost += getGEPCost(GEP->getSourceElementType(), GEP->getPointerOperand(),
+                         Indices, AccessTy, CostKind);
+    }
+  }
+  return Cost;
+}
+
 void RISCVTTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
                                            TTI::UnrollingPreferences &UP,
                                            OptimizationRemarkEmitter *ORE) {
@@ -1692,12 +1744,19 @@ unsigned RISCVTTIImpl::getRegUsageForType(Type *Ty) {
 }
 
 unsigned RISCVTTIImpl::getMaximumVF(unsigned ElemWidth, unsigned Opcode) const {
-  // This interface is currently only used by SLP.  Returning 1 (which is the
-  // default value for SLPMaxVF) disables SLP. We currently have a cost modeling
-  // problem w/ constant materialization which causes SLP to perform majorly
-  // unprofitable transformations.
-  // TODO: Figure out constant materialization cost modeling and remove.
-  return SLPMaxVF;
+  if (SLPMaxVF.getNumOccurrences())
+    return SLPMaxVF;
+
+  // Return how many elements can fit in getRegisterBitwidth.  This is the
+  // same routine as used in LoopVectorizer.  We should probably be
+  // accounting for whether we actually have instructions with the right
+  // lane type, but we don't have enough information to do that without
+  // some additional plumbing which hasn't been justified yet.
+  TypeSize RegWidth =
+    getRegisterBitWidth(TargetTransformInfo::RGK_FixedWidthVector);
+  // If no vector registers, or absurd element widths, disable
+  // vectorization by returning 1.
+  return std::max<unsigned>(1U, RegWidth.getFixedValue() / ElemWidth);
 }
 
 bool RISCVTTIImpl::isLSRCostLess(const TargetTransformInfo::LSRCost &C1,

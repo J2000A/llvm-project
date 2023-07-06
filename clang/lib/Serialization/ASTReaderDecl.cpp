@@ -89,7 +89,7 @@ namespace clang {
     using RecordData = ASTReader::RecordData;
 
     TypeID DeferredTypeID = 0;
-    unsigned AnonymousDeclNumber;
+    unsigned AnonymousDeclNumber = 0;
     GlobalDeclID NamedDeclForTagDecl = 0;
     IdentifierInfo *TypedefNameForLinkage = nullptr;
 
@@ -1659,6 +1659,13 @@ void ASTDeclReader::ReadVarDeclInit(VarDecl *VD) {
     EvaluatedStmt *Eval = VD->ensureEvaluatedStmt();
     Eval->HasConstantInitialization = (Val & 2) != 0;
     Eval->HasConstantDestruction = (Val & 4) != 0;
+    Eval->WasEvaluated = (Val & 8) != 0;
+    if (Eval->WasEvaluated) {
+      Eval->Evaluated = Record.readAPValue();
+      if (Eval->Evaluated.needsCleanup())
+        Reader.getContext().addDestruction(&Eval->Evaluated);
+    }
+
     // Store the offset of the initializer. Don't deserialize it yet: it might
     // not be needed, and might refer back to the variable, for example if it
     // contains a lambda.
@@ -2212,7 +2219,8 @@ void ASTDeclReader::VisitCXXDeductionGuideDecl(CXXDeductionGuideDecl *D) {
   D->setExplicitSpecifier(Record.readExplicitSpec());
   D->Ctor = readDeclAs<CXXConstructorDecl>();
   VisitFunctionDecl(D);
-  D->setIsCopyDeductionCandidate(Record.readInt());
+  D->setDeductionCandidateKind(
+      static_cast<DeductionCandidate>(Record.readInt()));
 }
 
 void ASTDeclReader::VisitCXXMethodDecl(CXXMethodDecl *D) {
@@ -3094,11 +3102,12 @@ Attr *ASTRecordReader::readAttr() {
   bool IsAlignas = (ParsedKind == AttributeCommonInfo::AT_Aligned &&
                     Syntax == AttributeCommonInfo::AS_Keyword &&
                     SpellingIndex == AlignedAttr::Keyword_alignas);
+  bool IsRegularKeywordAttribute = Record.readBool();
 
-  AttributeCommonInfo Info(
-      AttrName, ScopeName, AttrRange, ScopeLoc,
-      AttributeCommonInfo::Kind(ParsedKind),
-      {AttributeCommonInfo::Syntax(Syntax), SpellingIndex, IsAlignas});
+  AttributeCommonInfo Info(AttrName, ScopeName, AttrRange, ScopeLoc,
+                           AttributeCommonInfo::Kind(ParsedKind),
+                           {AttributeCommonInfo::Syntax(Syntax), SpellingIndex,
+                            IsAlignas, IsRegularKeywordAttribute});
 
 #include "clang/Serialization/AttrPCHRead.inc"
 

@@ -1801,7 +1801,7 @@ struct FormatStyle {
     BBCDS_Never,
     /// Breaking between template declaration and ``concept`` is allowed. The
     /// actual behavior depends on the content and line breaking rules and
-    /// penalities.
+    /// penalties.
     BBCDS_Allowed,
     /// Always break before ``concept``, putting it in the line after the
     /// template declaration.
@@ -2674,6 +2674,10 @@ struct FormatStyle {
   /// \version 3.9
   bool JavaScriptWrapImports;
   // clang-format on
+
+  /// Keep empty lines (up to ``MaxEmptyLinesToKeep``) at end of file.
+  /// \version 17
+  bool KeepEmptyLinesAtEOF;
 
   /// If true, the empty line at the start of blocks is kept.
   /// \code
@@ -3601,11 +3605,6 @@ struct FormatStyle {
   };
 
   /// Controls if and how clang-format will sort ``#includes``.
-  /// If ``Never``, includes are never sorted.
-  /// If ``CaseInsensitive``, includes are sorted in an ASCIIbetical or case
-  /// insensitive fashion.
-  /// If ``CaseSensitive``, includes are sorted in an alphabetical or case
-  /// sensitive fashion.
   /// \version 3.8
   SortIncludesOptions SortIncludes;
 
@@ -4019,9 +4018,12 @@ struct FormatStyle {
   /// The number of spaces before trailing line comments
   /// (``//`` - comments).
   ///
-  /// This does not affect trailing block comments (``/*`` - comments) as
-  /// those commonly have different usage patterns and a number of special
-  /// cases.
+  /// This does not affect trailing block comments (``/*`` - comments) as those
+  /// commonly have different usage patterns and a number of special cases.  In
+  /// the case of Verilog, it doesn't affect a comment right after the opening
+  /// parenthesis in the port or parameter list in a module header, because it
+  /// is probably for the port on the following line instead of the parenthesis
+  /// it follows.
   /// \code
   ///    SpacesBeforeTrailingComments: 3
   ///    void f() {
@@ -4366,6 +4368,7 @@ struct FormatStyle {
            JavaImportGroups == R.JavaImportGroups &&
            JavaScriptQuotes == R.JavaScriptQuotes &&
            JavaScriptWrapImports == R.JavaScriptWrapImports &&
+           KeepEmptyLinesAtEOF == R.KeepEmptyLinesAtEOF &&
            KeepEmptyLinesAtTheStartOfBlocks ==
                R.KeepEmptyLinesAtTheStartOfBlocks &&
            Language == R.Language &&

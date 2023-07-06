@@ -14,10 +14,12 @@
 #include "llvm/Transforms/Utils/SimplifyLibCalls.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/AttributeMask.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
@@ -50,6 +52,38 @@ static cl::opt<bool>
 static cl::opt<bool>
     OptimizeHotColdNew("optimize-hot-cold-new", cl::Hidden, cl::init(false),
                        cl::desc("Enable hot/cold operator new library calls"));
+
+namespace {
+
+// Specialized parser to ensure the hint is an 8 bit value (we can't specify
+// uint8_t to opt<> as that is interpreted to mean that we are passing a char
+// option with a specific set of values.
+struct HotColdHintParser : public cl::parser<unsigned> {
+  HotColdHintParser(cl::Option &O) : cl::parser<unsigned>(O) {}
+
+  bool parse(cl::Option &O, StringRef ArgName, StringRef Arg, unsigned &Value) {
+    if (Arg.getAsInteger(0, Value))
+      return O.error("'" + Arg + "' value invalid for uint argument!");
+
+    if (Value > 255)
+      return O.error("'" + Arg + "' value must be in the range [0, 255]!");
+
+    return false;
+  }
+};
+
+} // end anonymous namespace
+
+// Hot/cold operator new takes an 8 bit hotness hint, where 0 is the coldest
+// and 255 is the hottest. Default to 1 value away from the coldest and hottest
+// hints, so that the compiler hinted allocations are slightly less strong than
+// manually inserted hints at the two extremes.
+static cl::opt<unsigned, false, HotColdHintParser> ColdNewHintValue(
+    "cold-new-hint-value", cl::Hidden, cl::init(1),
+    cl::desc("Value to pass to hot/cold operator new for cold allocation"));
+static cl::opt<unsigned, false, HotColdHintParser> HotNewHintValue(
+    "hot-new-hint-value", cl::Hidden, cl::init(254),
+    cl::desc("Value to pass to hot/cold operator new for hot allocation"));
 
 //===----------------------------------------------------------------------===//
 // Helper Functions
@@ -1518,30 +1552,21 @@ static Value *optimizeMemCmpConstantSize(CallInst *CI, Value *LHS, Value *RHS,
 
     // First, see if we can fold either argument to a constant.
     Value *LHSV = nullptr;
-    if (auto *LHSC = dyn_cast<Constant>(LHS)) {
-      LHSC = ConstantExpr::getBitCast(LHSC, IntType->getPointerTo());
+    if (auto *LHSC = dyn_cast<Constant>(LHS))
       LHSV = ConstantFoldLoadFromConstPtr(LHSC, IntType, DL);
-    }
+
     Value *RHSV = nullptr;
-    if (auto *RHSC = dyn_cast<Constant>(RHS)) {
-      RHSC = ConstantExpr::getBitCast(RHSC, IntType->getPointerTo());
+    if (auto *RHSC = dyn_cast<Constant>(RHS))
       RHSV = ConstantFoldLoadFromConstPtr(RHSC, IntType, DL);
-    }
 
     // Don't generate unaligned loads. If either source is constant data,
     // alignment doesn't matter for that source because there is no load.
     if ((LHSV || getKnownAlignment(LHS, DL, CI) >= PrefAlignment) &&
         (RHSV || getKnownAlignment(RHS, DL, CI) >= PrefAlignment)) {
-      if (!LHSV) {
-        Type *LHSPtrTy =
-            IntType->getPointerTo(LHS->getType()->getPointerAddressSpace());
-        LHSV = B.CreateLoad(IntType, B.CreateBitCast(LHS, LHSPtrTy), "lhsv");
-      }
-      if (!RHSV) {
-        Type *RHSPtrTy =
-            IntType->getPointerTo(RHS->getType()->getPointerAddressSpace());
-        RHSV = B.CreateLoad(IntType, B.CreateBitCast(RHS, RHSPtrTy), "rhsv");
-      }
+      if (!LHSV)
+        LHSV = B.CreateLoad(IntType, LHS, "lhsv");
+      if (!RHSV)
+        RHSV = B.CreateLoad(IntType, RHS, "rhsv");
       return B.CreateZExt(B.CreateICmpNE(LHSV, RHSV), CI->getType(), "memcmp");
     }
   }
@@ -1701,9 +1726,9 @@ Value *LibCallSimplifier::optimizeNew(CallInst *CI, IRBuilderBase &B,
 
   uint8_t HotCold;
   if (CI->getAttributes().getFnAttr("memprof").getValueAsString() == "cold")
-    HotCold = 0; // Coldest setting.
+    HotCold = ColdNewHintValue;
   else if (CI->getAttributes().getFnAttr("memprof").getValueAsString() == "hot")
-    HotCold = 255; // Hottest setting.
+    HotCold = HotNewHintValue;
   else
     return nullptr;
 
@@ -2147,7 +2172,7 @@ Value *LibCallSimplifier::replacePowWithSqrt(CallInst *Pow, IRBuilderBase &B) {
   // pow(-Inf, 0.5) is optionally required to have a result of +Inf (not setting
   // errno), but sqrt(-Inf) is required by various standards to set errno.
   if (!Pow->doesNotAccessMemory() && !Pow->hasNoInfs() &&
-      !isKnownNeverInfinity(Base, TLI))
+      !isKnownNeverInfinity(Base, DL, TLI, 0, AC, Pow))
     return nullptr;
 
   Sqrt = getSqrtCall(Base, AttributeList(), Pow->doesNotAccessMemory(), Mod, B,
@@ -3805,13 +3830,13 @@ Value *LibCallSimplifier::optimizeCall(CallInst *CI, IRBuilderBase &Builder) {
 }
 
 LibCallSimplifier::LibCallSimplifier(
-    const DataLayout &DL, const TargetLibraryInfo *TLI,
-    OptimizationRemarkEmitter &ORE,
-    BlockFrequencyInfo *BFI, ProfileSummaryInfo *PSI,
+    const DataLayout &DL, const TargetLibraryInfo *TLI, AssumptionCache *AC,
+    OptimizationRemarkEmitter &ORE, BlockFrequencyInfo *BFI,
+    ProfileSummaryInfo *PSI,
     function_ref<void(Instruction *, Value *)> Replacer,
     function_ref<void(Instruction *)> Eraser)
-    : FortifiedSimplifier(TLI), DL(DL), TLI(TLI), ORE(ORE), BFI(BFI), PSI(PSI),
-      Replacer(Replacer), Eraser(Eraser) {}
+    : FortifiedSimplifier(TLI), DL(DL), TLI(TLI), AC(AC), ORE(ORE), BFI(BFI),
+      PSI(PSI), Replacer(Replacer), Eraser(Eraser) {}
 
 void LibCallSimplifier::replaceAllUsesWith(Instruction *I, Value *With) {
   // Indirect through the replacer used in this instance.

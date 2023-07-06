@@ -201,6 +201,7 @@ struct Config {
   bool armHasMovtMovw = false;
   bool armJ1J2BranchEncoding = false;
   bool asNeeded = false;
+  bool armBe8 = false;
   BsymbolicKind bsymbolic = BsymbolicKind::None;
   bool callGraphProfileSort;
   bool checkSections;
@@ -252,6 +253,7 @@ struct Config {
   bool pie;
   bool printGcSections;
   bool printIcfSections;
+  bool printMemoryUsage;
   bool relax;
   bool relaxGP;
   bool relocatable;

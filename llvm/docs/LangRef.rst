@@ -744,8 +744,14 @@ Variables and aliases can have a
 
 :ref:`Scalable vectors <t_vector>` cannot be global variables or members of
 arrays because their size is unknown at compile time. They are allowed in
-structs to facilitate intrinsics returning multiple values. Structs containing
-scalable vectors cannot be used in loads, stores, allocas, or GEPs.
+structs to facilitate intrinsics returning multiple values. Generally, structs
+containing scalable vectors are not considered "sized" and cannot be used in
+loads, stores, allocas, or GEPs. The only exception to this rule is for structs
+that contain scalable vectors of the same type (e.g. ``{<vscale x 2 x i32>,
+<vscale x 2 x i32>}`` contains the same type while ``{<vscale x 2 x i32>,
+<vscale x 2 x i64>}`` doesn't). These kinds of structs (we may call them
+homogeneous scalable vector structs) are considered sized and can be used in
+loads, stores, allocas, but not GEPs.
 
 Syntax::
 
@@ -1092,8 +1098,8 @@ For example:
     declare i32 @atoi(i8 zeroext)
     declare signext i8 @returns_signed_char()
 
-Note that any attributes for the function result (``nounwind``,
-``readonly``) come immediately after the argument list.
+Note that any attributes for the function result (``nonnull``,
+``signext``) come before the result type.
 
 Currently, only the following parameter attributes are defined:
 
@@ -1363,6 +1369,8 @@ Currently, only the following parameter attributes are defined:
     This indicates that the parameter is the self/context parameter. This is not
     a valid attribute for return values and can only be applied to one
     parameter.
+
+.. _swiftasync:
 
 ``swiftasync``
     This indicates that the parameter is the asynchronous context parameter and
@@ -3423,6 +3431,8 @@ floating-point transformations.
    to form arbitrary contractions. For example, ``(a*b) + (c*d) + e`` can not
    be transformed into ``(a*b) + ((c*d) + e)`` to create two fma operations.
 
+.. _fastmath_afn:
+
 ``afn``
    Approximate functions - Allow substitution of approximate calculations for
    functions (sin, log, sqrt, etc). See floating-point intrinsic definitions
@@ -4191,7 +4201,7 @@ or '``void``') and be used anywhere a constant is permitted.
 
 .. note::
 
-  A '``poison``' value (decribed in the next section) should be used instead of
+  A '``poison``' value (described in the next section) should be used instead of
   '``undef``' whenever possible. Poison values are stronger than undef, and
   enable more optimizations. Just the existence of '``undef``' blocks certain
   optimizations (see the examples below).
@@ -6005,7 +6015,8 @@ The current supported opcode vocabulary is limited:
   instruction.
 
   Because ``DW_OP_LLVM_entry_value`` is defined in terms of registers, it is
-  only allowed in MIR. The operation is introduced by:
+  usually used in MIR, but it is also allowed in LLVM IR when targetting a
+  :ref:`swiftasync <swiftasync>` argument. The operation is introduced by:
 
     - ``LiveDebugValues`` pass, which applies it to function parameters that
       are unmodified throughout the function. Support is limited to simple
@@ -6015,6 +6026,10 @@ The current supported opcode vocabulary is limited:
     - ``AsmPrinter`` pass when a call site parameter value
       (``DW_AT_call_site_parameter_value``) is represented as entry value of
       the parameter.
+    - ``CoroSplit`` pass, which may move variables from allocas into a
+      coroutine frame. If the coroutine frame is a
+      :ref:`swiftasync <swiftasync>` argument, the variable is described with
+      an ``DW_OP_LLVM_entry_value`` operation.
 
 - ``DW_OP_LLVM_arg, N`` is used in debug intrinsics that refer to more than one
   value, such as one that calculates the sum of two registers. This is always
@@ -7423,9 +7438,9 @@ functions was called.
 '``annotation``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``annotation`` metadata can be used to attach a tuple of annotation strings 
-or a tuple of a tuple of annotation strings to any instruction. This metadata does 
-not impact the semantics of the program and may only be used to provide additional 
+The ``annotation`` metadata can be used to attach a tuple of annotation strings
+or a tuple of a tuple of annotation strings to any instruction. This metadata does
+not impact the semantics of the program and may only be used to provide additional
 insight about the program and transformations to users.
 
 Example:
@@ -7437,7 +7452,8 @@ Example:
 
 Embedding tuple of strings example:
 
-.. code-block:: test
+.. code-block:: text
+
   %a.ptr = getelementptr ptr, ptr %base, i64 0. !annotation !0
   !0 = !{!1}
   !1 = !{!"gep offset", !"0"}
@@ -7597,9 +7613,10 @@ The following behaviors are supported:
    * - 2
      - **Warning**
            Emits a warning if two values disagree. The result value will be the
-           operand for the flag from the first module being linked, or the max
-           if the other module uses **Max** (in which case the resulting flag
-           will be **Max**).
+           operand for the flag from the first module being linked, unless the
+           other module uses **Min** or **Max**, in which case the result will
+           be **Min** (with the min value) or **Max** (with the max value),
+           respectively.
 
    * - 3
      - **Require**
@@ -9609,7 +9626,7 @@ Overview:
 """""""""
 
 The '``frem``' instruction returns the remainder from the division of
-its two operands. 
+its two operands.
 
 .. note::
 
@@ -10278,6 +10295,11 @@ it is always present. If not specified, the target can choose to align the
 allocation on any convenient boundary compatible with the type.
 
 '``type``' may be any sized type.
+
+Structs containing scalable vectors cannot be used in allocas unless all
+fields are the same scalable vector type (e.g. ``{<vscale x 2 x i32>,
+<vscale x 2 x i32>}`` contains the same type while ``{<vscale x 2 x i32>,
+<vscale x 2 x i64>}`` doesn't).
 
 Semantics:
 """"""""""
@@ -14618,6 +14640,8 @@ trapping or setting ``errno``.
 When specified with the fast-math-flag 'afn', the result may be approximated
 using a less accurate calculation.
 
+.. _int_exp:
+
 '``llvm.exp.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -14655,6 +14679,8 @@ trapping or setting ``errno``.
 
 When specified with the fast-math-flag 'afn', the result may be approximated
 using a less accurate calculation.
+
+.. _int_exp2:
 
 '``llvm.exp2.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -14694,6 +14720,105 @@ trapping or setting ``errno``.
 When specified with the fast-math-flag 'afn', the result may be approximated
 using a less accurate calculation.
 
+'``llvm.ldexp.*``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+This is an overloaded intrinsic. You can use ``llvm.ldexp`` on any
+floating point or vector of floating point type. Not all targets support
+all types however.
+
+::
+
+      declare float     @llvm.ldexp.f32.i32(float %Val, i32 %Exp)
+      declare double    @llvm.ldexp.f64.i32(double %Val, i32 %Exp)
+      declare x86_fp80  @llvm.ldexp.f80.i32(x86_fp80 %Val, i32 %Exp)
+      declare fp128     @llvm.ldexp.f128.i32(fp128 %Val, i32 %Exp)
+      declare ppc_fp128 @llvm.ldexp.ppcf128.i32(ppc_fp128 %Val, i32 %Exp)
+      declare <2 x float> @llvm.ldexp.v2f32.v2i32(<2 x float> %Val, <2 x i32> %Exp)
+
+Overview:
+"""""""""
+
+The '``llvm.ldexp.*``' intrinsics perform the ldexp function.
+
+Arguments:
+""""""""""
+
+The first argument and the return value are :ref:`floating-point
+<t_floating>` or :ref:`vector <t_vector>` of floating-point values of
+the same type. The second argument is an integer with the same number
+of elements.
+
+Semantics:
+""""""""""
+
+This function multiplies the first argument by 2 raised to the second
+argument's power. If the first argument is NaN or infinite, the same
+value is returned. If the result underflows a zero with the same sign
+is returned. If the result overflows, the result is an infinity with
+the same sign.
+
+.. _int_frexp:
+
+'``llvm.frexp.*``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+This is an overloaded intrinsic. You can use ``llvm.frexp`` on any
+floating point or vector of floating point type. Not all targets support
+all types however.
+
+::
+
+      declare { float, i32 }     @llvm.frexp.f32.i32(float %Val)
+      declare { double, i32 }    @llvm.frexp.f64.i32(double %Val)
+      declare { x86_fp80, i32 }  @llvm.frexp.f80.i32(x86_fp80 %Val)
+      declare { fp128, i32 }     @llvm.frexp.f128.i32(fp128 %Val)
+      declare { ppc_fp128, i32 } @llvm.frexp.ppcf128.i32(ppc_fp128 %Val)
+      declare { <2 x float>, <2 x i32> }  @llvm.frexp.v2f32.v2i32(<2 x float> %Val)
+
+Overview:
+"""""""""
+
+The '``llvm.frexp.*``' intrinsics perform the frexp function.
+
+Arguments:
+""""""""""
+
+The argument is a :ref:`floating-point <t_floating>` or
+:ref:`vector <t_vector>` of floating-point values. Returns two values
+in a struct. The first struct field matches the argument type, and the
+second field is an integer or a vector of integer values with the same
+number of elements as the argument.
+
+Semantics:
+""""""""""
+
+This intrinsic splits a floating point value into a normalized
+fractional component and integral exponent.
+
+For a non-zero argument, returns the argument multiplied by some power
+of two such that the absolute value of the returned value is in the
+range [0.5, 1.0), with the same sign as the argument. The second
+result is an integer such that the first result raised to the power of
+the second result is the input argument.
+
+If the argument is a zero, returns a zero with the same sign and a 0
+exponent.
+
+If the argument is a NaN, a NaN is returned and the returned exponent
+is unspecified.
+
+If the argument is an infinity, returns an infinity with the same sign
+and an unspecified exponent.
+
+.. _int_log:
+
 '``llvm.log.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -14732,6 +14857,8 @@ trapping or setting ``errno``.
 When specified with the fast-math-flag 'afn', the result may be approximated
 using a less accurate calculation.
 
+.. _int_log10:
+
 '``llvm.log10.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -14769,6 +14896,9 @@ trapping or setting ``errno``.
 
 When specified with the fast-math-flag 'afn', the result may be approximated
 using a less accurate calculation.
+
+
+.. _int_log2:
 
 '``llvm.log2.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -14925,10 +15055,9 @@ Follows the IEEE-754 semantics for minNum, except for handling of
 signaling NaNs. This match's the behavior of libm's fmin.
 
 If either operand is a NaN, returns the other non-NaN operand. Returns
-NaN only if both operands are NaN. The returned NaN is always
-quiet. If the operands compare equal, returns a value that compares
-equal to both operands. This means that fmin(+/-0.0, +/-0.0) could
-return either -0.0 or 0.0.
+NaN only if both operands are NaN. If the operands compare equal,
+returns either one of the operands. For example, this means that
+fmin(+0.0, -0.0) returns either operand.
 
 Unlike the IEEE-754 2008 behavior, this does not distinguish between
 signaling and quiet NaN inputs. If a target's implementation follows
@@ -14976,10 +15105,9 @@ Follows the IEEE-754 semantics for maxNum except for the handling of
 signaling NaNs. This matches the behavior of libm's fmax.
 
 If either operand is a NaN, returns the other non-NaN operand. Returns
-NaN only if both operands are NaN. The returned NaN is always
-quiet. If the operands compare equal, returns a value that compares
-equal to both operands. This means that fmax(+/-0.0, +/-0.0) could
-return either -0.0 or 0.0.
+NaN only if both operands are NaN. If the operands compare equal,
+returns either one of the operands. For example, this means that
+fmax(+0.0, -0.0) returns either -0.0 or 0.0.
 
 Unlike the IEEE-754 2008 behavior, this does not distinguish between
 signaling and quiet NaN inputs. If a target's implementation follows
@@ -17788,6 +17916,64 @@ Arguments:
 """"""""""
 The argument to this intrinsic must be a vector of floating-point values.
 
+.. _int_vector_reduce_fmaximum:
+
+'``llvm.vector.reduce.fmaximum.*``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+This is an overloaded intrinsic.
+
+::
+
+      declare float @llvm.vector.reduce.fmaximum.v4f32(<4 x float> %a)
+      declare double @llvm.vector.reduce.fmaximum.v2f64(<2 x double> %a)
+
+Overview:
+"""""""""
+
+The '``llvm.vector.reduce.fmaximum.*``' intrinsics do a floating-point
+``MAX`` reduction of a vector, returning the result as a scalar. The return type
+matches the element-type of the vector input.
+
+This instruction has the same comparison semantics as the '``llvm.maximum.*``'
+intrinsic. That is, this intrinsic propagates NaNs and +0.0 is considered
+greater than -0.0. If any element of the vector is a NaN, the result is NaN.
+
+Arguments:
+""""""""""
+The argument to this intrinsic must be a vector of floating-point values.
+
+.. _int_vector_reduce_fminimum:
+
+'``llvm.vector.reduce.fminimum.*``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+This is an overloaded intrinsic.
+
+::
+
+      declare float @llvm.vector.reduce.fminimum.v4f32(<4 x float> %a)
+      declare double @llvm.vector.reduce.fminimum.v2f64(<2 x double> %a)
+
+Overview:
+"""""""""
+
+The '``llvm.vector.reduce.fminimum.*``' intrinsics do a floating-point
+``MIN`` reduction of a vector, returning the result as a scalar. The return type
+matches the element-type of the vector input.
+
+This instruction has the same comparison semantics as the '``llvm.minimum.*``'
+intrinsic. That is, this intrinsic propagates NaNs and -0.0 is considered less
+than +0.0. If any element of the vector is a NaN, the result is NaN.
+
+Arguments:
+""""""""""
+The argument to this intrinsic must be a vector of floating-point values.
+
 '``llvm.vector.insert``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -18051,6 +18237,54 @@ Arguments:
 
 None.
 
+
+'``llvm.experimental.get.vector.length``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+This is an overloaded intrinsic.
+
+::
+
+      declare i32 @llvm.experimental.get.vector.length.i32(i32 %cnt, i32 immarg %vf, i1 immarg %scalable)
+      declare i32 @llvm.experimental.get.vector.length.i64(i64 %cnt, i32 immarg %vf, i1 immarg %scalable)
+
+Overview:
+"""""""""
+
+The '``llvm.experimental.get.vector.length.*``' intrinsics take a number of
+elements to process and returns how many of the elements can be processed
+with the requested vectorization factor.
+
+Arguments:
+""""""""""
+
+The first argument is an unsigned value of any scalar integer type and specifies
+the total number of elements to be processed. The second argument is an i32
+immediate for the vectorization factor. The third argument indicates if the
+vectorization factor should be multiplied by vscale.
+
+Semantics:
+""""""""""
+
+Returns a positive i32 value (explicit vector length) that is unknown at compile
+time and depends on the hardware specification.
+If the result value does not fit in the result type, then the result is
+a :ref:`poison value <poisonvalues>`.
+
+This intrinsic is intended to be used by loop vectorization with VP intrinsics
+in order to get the number of elements to process on each loop iteration. The
+result should be used to decrease the count for the next iteration until the
+count reaches zero.
+
+If the count is larger than the number of lanes in the type described by the
+last 2 arguments, this intrinsic may return a value less than the number of
+lanes implied by the type. The result will be at least as large as the result
+will be on any later loop iteration.
+
+This intrinsic will only return 0 if the input count is also 0. A non-zero input
+count will produce a non-zero result.
 
 Matrix Intrinsics
 -----------------
@@ -24241,6 +24475,47 @@ This function returns the first value raised to the second power with an
 unspecified sequence of rounding operations.
 
 
+'``llvm.experimental.constrained.ldexp``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare <type0>
+      @llvm.experimental.constrained.ldexp(<type0> <op1>, <type1> <op2>,
+                                          metadata <rounding mode>,
+                                          metadata <exception behavior>)
+
+Overview:
+"""""""""
+
+The '``llvm.experimental.constrained.ldexp``' performs the ldexp function.
+
+
+Arguments:
+""""""""""
+
+The first argument and the return value are :ref:`floating-point
+<t_floating>` or :ref:`vector <t_vector>` of floating-point values of
+the same type. The second argument is an integer with the same number
+of elements.
+
+
+The third and fourth arguments specify the rounding mode and exception
+behavior as described above.
+
+Semantics:
+""""""""""
+
+This function multiplies the first argument by 2 raised to the second
+argument's power. If the first argument is NaN or infinite, the same
+value is returned. If the result underflows a zero with the same sign
+is returned. If the result overflows, the result is an infinity with
+the same sign.
+
+
 '``llvm.experimental.constrained.sin``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -25184,6 +25459,81 @@ return any value and uses platform-independent representation of IEEE rounding
 modes.
 
 
+'``llvm.get.fpenv``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare <integer_type> @llvm.get.fpenv()
+
+Overview:
+"""""""""
+
+The '``llvm.get.fpenv``' intrinsic returns bits of the current floating-point
+environment. The return value type is platform-specific.
+
+Semantics:
+""""""""""
+
+The '``llvm.get.fpenv``' intrinsic reads the current floating-point environment
+and returns it as an integer value.
+
+
+'``llvm.set.fpenv``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare void @llvm.set.fpenv(<integer_type> <val>)
+
+Overview:
+"""""""""
+
+The '``llvm.set.fpenv``' intrinsic sets the current floating-point environment.
+
+Arguments:
+""""""""""
+
+The argument is an integer representing the new floating-point environment. The
+integer type is platform-specific.
+
+Semantics:
+""""""""""
+
+The '``llvm.set.fpenv``' intrinsic sets the current floating-point environment
+to the state specified by the argument. The state may be previously obtained by a
+call to '``llvm.get.fpenv``' or synthesised in a platform-dependent way.
+
+
+'``llvm.reset.fpenv``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare void @llvm.reset.fpenv()
+
+Overview:
+"""""""""
+
+The '``llvm.reset.fpenv``' intrinsic sets the default floating-point environment.
+
+Semantics:
+""""""""""
+
+The '``llvm.reset.fpenv``' intrinsic sets the current floating-point environment
+to default state. It is similar to the call 'fesetenv(FE_DFL_ENV)', except it
+does not return any value.
+
+
 Floating-Point Test Intrinsics
 ------------------------------
 
@@ -25820,6 +26170,28 @@ element is true, the following rules apply to the first element:
 If the function's return value's second element is false, the value of the
 first element is undefined.
 
+.. _type.checked.load.relative:
+
+'``llvm.type.checked.load.relative``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare {ptr, i1} @llvm.type.checked.load.relative(ptr %ptr, i32 %offset, metadata %type) argmemonly nounwind readonly
+
+Overview:
+"""""""""
+
+The ``llvm.type.checked.load.relative`` intrinsic loads a relative pointer to a
+function from a virtual table pointer using metadata. Otherwise, its semantic is
+identical to the ``llvm.type.checked.load`` intrinsic.
+
+A relative pointer is a pointer to an offset to the pointed to value. The
+address of the underlying pointer of the relative pointer is obtained by adding
+the offset to the address of the offset value.
 
 '``llvm.arithmetic.fence``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

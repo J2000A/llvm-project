@@ -72,10 +72,10 @@ define <16 x i1> @reverse_v16i1(<16 x i1> %a) {
 define <32 x i1> @reverse_v32i1(<32 x i1> %a) {
 ; CHECK-LABEL: reverse_v32i1:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    li a0, 32
-; CHECK-NEXT:    vsetvli zero, a0, e8, m2, ta, ma
 ; CHECK-NEXT:    lui a0, %hi(.LCPI4_0)
 ; CHECK-NEXT:    addi a0, a0, %lo(.LCPI4_0)
+; CHECK-NEXT:    li a1, 32
+; CHECK-NEXT:    vsetvli zero, a1, e8, m2, ta, ma
 ; CHECK-NEXT:    vle8.v v8, (a0)
 ; CHECK-NEXT:    vmv.v.i v10, 0
 ; CHECK-NEXT:    vmerge.vim v10, v10, 1, v0
@@ -89,10 +89,10 @@ define <32 x i1> @reverse_v32i1(<32 x i1> %a) {
 define <64 x i1> @reverse_v64i1(<64 x i1> %a) {
 ; CHECK-LABEL: reverse_v64i1:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    li a0, 64
-; CHECK-NEXT:    vsetvli zero, a0, e8, m4, ta, ma
 ; CHECK-NEXT:    lui a0, %hi(.LCPI5_0)
 ; CHECK-NEXT:    addi a0, a0, %lo(.LCPI5_0)
+; CHECK-NEXT:    li a1, 64
+; CHECK-NEXT:    vsetvli zero, a1, e8, m4, ta, ma
 ; CHECK-NEXT:    vle8.v v8, (a0)
 ; CHECK-NEXT:    vmv.v.i v12, 0
 ; CHECK-NEXT:    vmerge.vim v12, v12, 1, v0
@@ -115,9 +115,8 @@ define <1 x i8> @reverse_v1i8(<1 x i8> %a) {
 define <2 x i8> @reverse_v2i8(<2 x i8> %a) {
 ; CHECK-LABEL: reverse_v2i8:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    vsetivli zero, 1, e8, mf8, ta, ma
-; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vsetivli zero, 2, e8, mf8, ta, ma
+; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vslideup.vi v9, v8, 1
 ; CHECK-NEXT:    vmv1r.v v8, v9
 ; CHECK-NEXT:    ret
@@ -205,9 +204,8 @@ define <1 x i16> @reverse_v1i16(<1 x i16> %a) {
 define <2 x i16> @reverse_v2i16(<2 x i16> %a) {
 ; CHECK-LABEL: reverse_v2i16:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    vsetivli zero, 1, e16, mf4, ta, ma
-; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vsetivli zero, 2, e16, mf4, ta, ma
+; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vslideup.vi v9, v8, 1
 ; CHECK-NEXT:    vmv1r.v v8, v9
 ; CHECK-NEXT:    ret
@@ -280,9 +278,8 @@ define <1 x i32> @reverse_v1i32(<1 x i32> %a) {
 define <2 x i32> @reverse_v2i32(<2 x i32> %a) {
 ; CHECK-LABEL: reverse_v2i32:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    vsetivli zero, 1, e32, mf2, ta, ma
-; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vsetivli zero, 2, e32, mf2, ta, ma
+; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vslideup.vi v9, v8, 1
 ; CHECK-NEXT:    vmv1r.v v8, v9
 ; CHECK-NEXT:    ret
@@ -340,9 +337,8 @@ define <1 x i64> @reverse_v1i64(<1 x i64> %a) {
 define <2 x i64> @reverse_v2i64(<2 x i64> %a) {
 ; CHECK-LABEL: reverse_v2i64:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    vsetivli zero, 1, e64, m1, ta, ma
-; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vsetivli zero, 2, e64, m1, ta, ma
+; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vslideup.vi v9, v8, 1
 ; CHECK-NEXT:    vmv.v.v v8, v9
 ; CHECK-NEXT:    ret
@@ -484,9 +480,8 @@ define <1 x half> @reverse_v1f16(<1 x half> %a) {
 define <2 x half> @reverse_v2f16(<2 x half> %a) {
 ; CHECK-LABEL: reverse_v2f16:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    vsetivli zero, 1, e16, mf4, ta, ma
-; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vsetivli zero, 2, e16, mf4, ta, ma
+; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vslideup.vi v9, v8, 1
 ; CHECK-NEXT:    vmv1r.v v8, v9
 ; CHECK-NEXT:    ret
@@ -559,9 +554,8 @@ define <1 x float> @reverse_v1f32(<1 x float> %a) {
 define <2 x float> @reverse_v2f32(<2 x float> %a) {
 ; CHECK-LABEL: reverse_v2f32:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    vsetivli zero, 1, e32, mf2, ta, ma
-; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vsetivli zero, 2, e32, mf2, ta, ma
+; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vslideup.vi v9, v8, 1
 ; CHECK-NEXT:    vmv1r.v v8, v9
 ; CHECK-NEXT:    ret
@@ -619,9 +613,8 @@ define <1 x double> @reverse_v1f64(<1 x double> %a) {
 define <2 x double> @reverse_v2f64(<2 x double> %a) {
 ; CHECK-LABEL: reverse_v2f64:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    vsetivli zero, 1, e64, m1, ta, ma
-; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vsetivli zero, 2, e64, m1, ta, ma
+; CHECK-NEXT:    vslidedown.vi v9, v8, 1
 ; CHECK-NEXT:    vslideup.vi v9, v8, 1
 ; CHECK-NEXT:    vmv.v.v v8, v9
 ; CHECK-NEXT:    ret

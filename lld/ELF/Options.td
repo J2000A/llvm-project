@@ -36,6 +36,8 @@ multiclass B<string name, string help1, string help2> {
 
 defm auxiliary: Eq<"auxiliary", "Set DT_AUXILIARY field to the specified name">;
 
+def be8: F<"be8">, HelpText<"write a Big Endian ELF file using BE8 format (AArch32 only)">;
+
 def Bno_symbolic: F<"Bno-symbolic">, HelpText<"Don't bind default visibility defined symbols locally for -shared (default)">;
 
 def Bsymbolic: F<"Bsymbolic">, HelpText<"Bind default visibility defined symbols locally for -shared">;
@@ -350,6 +352,9 @@ def push_state: F<"push-state">,
 
 def print_map: F<"print-map">,
   HelpText<"Print a link map to the standard output">;
+
+def print_memory_usage: F<"print-memory-usage">,
+  HelpText<"Report target memory usage">;
 
 defm relax: BB<"relax",
   "Enable target-specific relaxations if supported (default)",

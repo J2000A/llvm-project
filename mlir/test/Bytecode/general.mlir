@@ -1,9 +1,7 @@
 // RUN: mlir-opt -allow-unregistered-dialect -emit-bytecode %s | mlir-opt -allow-unregistered-dialect | FileCheck %s
 
-// Bytecode currently does not support big-endian platforms
-// UNSUPPORTED: target=s390x-{{.*}}
-
 // CHECK-LABEL: "bytecode.test1"
+// CHECK-NEXT:    "unregistered.op"() {test_attr = #test.dynamic_singleton} : () -> ()
 // CHECK-NEXT:    "bytecode.empty"() : () -> ()
 // CHECK-NEXT:    "bytecode.attributes"() {attra = 10 : i64, attrb = #bytecode.attr} : () -> ()
 // CHECK-NEXT{LITERAL}: "bytecode.sparse"() {value = sparse<[[2, 1], [1, 1], [1, 2]], [1.
@@ -21,6 +19,7 @@
 // CHECK-NEXT:  }) : () -> ()
 
 "bytecode.test1"() ({
+  "unregistered.op"() {test_attr = #test.dynamic_singleton} : () -> ()
   "bytecode.empty"() : () -> ()
   "bytecode.attributes"() {attra = 10, attrb = #bytecode.attr} : () -> ()
   %cst = "bytecode.sparse"() {value = sparse<[[2, 1], [1, 1], [1, 2]], [1.0, 5.0, 6.0]> : tensor<8x7xf32>} : () -> (tensor<8x7xf32>)
@@ -30,7 +29,7 @@
   }
   "bytecode.branch"()[^secondBlock] : () -> ()
 
-^secondBlock(%arg1: i32, %arg2: !bytecode.int, %arg3: !pdl.operation):
+^secondBlock(%arg1: i32 loc(unknown), %arg2: !bytecode.int, %arg3: !pdl.operation loc(unknown)):
   "bytecode.regions"() ({
     "bytecode.operands"(%arg1, %arg2, %arg3) : (i32, !bytecode.int, !pdl.operation) -> ()
     "bytecode.return"() : () -> ()

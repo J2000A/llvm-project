@@ -13,7 +13,6 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/GPU/TransformOps/GPUTransformOps.h"
-#include "mlir/Dialect/PDL/IR/PDL.h"
 #include "mlir/Dialect/SCF/IR/DeviceMappingInterface.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Transform/IR/TransformDialect.h"
@@ -150,7 +149,7 @@ struct GpuWarpIdBuilder : public GpuIdBuilder {
       // Reverse back to be in [x, y, z] order.
       for (AffineExpr e : llvm::reverse(delinearizingExprs))
         ids.push_back(
-            affine::makeComposedAffineApply(rewriter, loc, e, warpId));
+            affine::makeComposedAffineApply(rewriter, loc, e, {warpId}));
 
       // clang-format off
       LDBG("----linearId: " << linearId);
@@ -206,7 +205,7 @@ struct GpuLinearIdBuilder : public GpuIdBuilder {
       // Reverse back to be in [x, y, z] order.
       for (AffineExpr e : llvm::reverse(delinearizingExprs))
         ids.push_back(
-            affine::makeComposedAffineApply(rewriter, loc, e, linearId));
+            affine::makeComposedAffineApply(rewriter, loc, e, {linearId}));
 
       // clang-format off
       LLVM_DEBUG(llvm::interleaveComma(reverseBasisSizes,
@@ -257,19 +256,19 @@ checkMappingAttributeTypes(std::optional<TransformOpInterface> transformOp,
 
   bool hasBlockMapping =
       llvm::any_of(forallOp.getMapping().value(), [](Attribute attr) {
-        return attr.isa<GPUBlockMappingAttr>();
+        return isa<GPUBlockMappingAttr>(attr);
       });
   bool hasThreadMapping =
       llvm::any_of(forallOp.getMapping().value(), [](Attribute attr) {
-        return attr.isa<GPUThreadMappingAttr>();
+        return isa<GPUThreadMappingAttr>(attr);
       });
   bool hasWarpMapping =
       llvm::any_of(forallOp.getMapping().value(), [](Attribute attr) {
-        return attr.isa<GPUWarpMappingAttr>();
+        return isa<GPUWarpMappingAttr>(attr);
       });
   bool hasLinearMapping =
       llvm::any_of(forallOp.getMapping().value(), [](Attribute attr) {
-        return attr.isa<GPULinearIdMappingAttr>();
+        return isa<GPULinearIdMappingAttr>(attr);
       });
   int64_t countMappingTypes = 0;
   countMappingTypes += hasBlockMapping ? 1 : 0;
@@ -399,7 +398,7 @@ createGpuLaunch(RewriterBase &rewriter, Location loc,
 
 /// Alter kernel configuration of the given kernel.
 static DiagnosedSilenceableFailure
-alterGpuLaunch(IRRewriter &rewriter, LaunchOp gpuLaunch,
+alterGpuLaunch(RewriterBase &rewriter, LaunchOp gpuLaunch,
                TransformOpInterface transformOp,
                std::optional<int64_t> gridDimX = std::nullopt,
                std::optional<int64_t> gridDimY = std::nullopt,
@@ -520,7 +519,7 @@ static DiagnosedSilenceableFailure rewriteOneForallCommonImpl(
                        ArrayRef<Attribute>{forallMappingAttrs}.take_front(
                            forallOp.getInductionVars().size()))) {
     Value peIdOp = mappingIdOps[static_cast<int64_t>(
-        dim.cast<DeviceMappingAttrInterface>().getMappingId())];
+        cast<DeviceMappingAttrInterface>(dim).getMappingId())];
     bvm.map(iv, peIdOp);
   }
 
@@ -662,12 +661,10 @@ mlir::transform::gpu::findTopLevelForallOp(Operation *target,
   return DiagnosedSilenceableFailure::success();
 }
 
-DiagnosedSilenceableFailure
-transform::MapForallToBlocks::applyToOne(Operation *target,
-                                         ApplyToEachResultList &results,
-                                         transform::TransformState &state) {
+DiagnosedSilenceableFailure transform::MapForallToBlocks::applyToOne(
+    transform::TransformRewriter &rewriter, Operation *target,
+    ApplyToEachResultList &results, transform::TransformState &state) {
   LaunchOp gpuLaunch = dyn_cast<LaunchOp>(target);
-  IRRewriter rewriter(getContext());
   auto transformOp = cast<TransformOpInterface>(getOperation());
 
   if (!getGenerateGpuLaunch() && !gpuLaunch) {
@@ -857,7 +854,8 @@ DiagnosedSilenceableFailure mlir::transform::gpu::mapNestedForallToThreadsImpl(
 }
 
 DiagnosedSilenceableFailure transform::MapNestedForallToThreads::applyToOne(
-    Operation *target, ApplyToEachResultList &results, TransformState &state) {
+    transform::TransformRewriter &rewriter, Operation *target,
+    ApplyToEachResultList &results, TransformState &state) {
   LaunchOp gpuLaunch = dyn_cast<LaunchOp>(target);
   auto transformOp = cast<TransformOpInterface>(getOperation());
 
@@ -878,7 +876,6 @@ DiagnosedSilenceableFailure transform::MapNestedForallToThreads::applyToOne(
 
   // Set the GPU launch configuration for the block dims early, this is not
   // subject to IR inspection.
-  IRRewriter rewriter(getContext());
   diag = alterGpuLaunch(rewriter, gpuLaunch, transformOp, std::nullopt,
                         std::nullopt, std::nullopt, blockDims[0], blockDims[1],
                         blockDims[2]);
@@ -904,7 +901,6 @@ class GPUTransformDialectExtension
           GPUTransformDialectExtension> {
 public:
   GPUTransformDialectExtension() {
-    declareDependentDialect<pdl::PDLDialect>();
     declareGeneratedDialect<scf::SCFDialect>();
     declareGeneratedDialect<arith::ArithDialect>();
     declareGeneratedDialect<GPUDialect>();

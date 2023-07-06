@@ -2570,12 +2570,47 @@ private:
 };
 }
 
+FunctionTemplateDecl *Sema::DeclareImplicitDeductionGuideFromInitList(
+    TemplateDecl *Template, MutableArrayRef<QualType> ParamTypes,
+    SourceLocation Loc) {
+  if (CXXRecordDecl *DefRecord =
+          cast<CXXRecordDecl>(Template->getTemplatedDecl())->getDefinition()) {
+    if (TemplateDecl *DescribedTemplate =
+            DefRecord->getDescribedClassTemplate())
+      Template = DescribedTemplate;
+  }
+
+  DeclContext *DC = Template->getDeclContext();
+  if (DC->isDependentContext())
+    return nullptr;
+
+  ConvertConstructorToDeductionGuideTransform Transform(
+      *this, cast<ClassTemplateDecl>(Template));
+  if (!isCompleteType(Loc, Transform.DeducedType))
+    return nullptr;
+
+  // In case we were expanding a pack when we attempted to declare deduction
+  // guides, turn off pack expansion for everything we're about to do.
+  ArgumentPackSubstitutionIndexRAII SubstIndex(*this,
+                                               /*NewSubstitutionIndex=*/-1);
+  // Create a template instantiation record to track the "instantiation" of
+  // constructors into deduction guides.
+  InstantiatingTemplate BuildingDeductionGuides(
+      *this, Loc, Template,
+      Sema::InstantiatingTemplate::BuildingDeductionGuidesTag{});
+  if (BuildingDeductionGuides.isInvalid())
+    return nullptr;
+
+  return cast<FunctionTemplateDecl>(
+      Transform.buildSimpleDeductionGuide(ParamTypes));
+}
+
 void Sema::DeclareImplicitDeductionGuides(TemplateDecl *Template,
                                           SourceLocation Loc) {
   if (CXXRecordDecl *DefRecord =
           cast<CXXRecordDecl>(Template->getTemplatedDecl())->getDefinition()) {
-    TemplateDecl *DescribedTemplate = DefRecord->getDescribedClassTemplate();
-    Template = DescribedTemplate ? DescribedTemplate : Template;
+    if (TemplateDecl *DescribedTemplate = DefRecord->getDescribedClassTemplate())
+      Template = DescribedTemplate;
   }
 
   DeclContext *DC = Template->getDeclContext();
@@ -2599,9 +2634,9 @@ void Sema::DeclareImplicitDeductionGuides(TemplateDecl *Template,
   ArgumentPackSubstitutionIndexRAII SubstIndex(*this, -1);
   // Create a template instantiation record to track the "instantiation" of
   // constructors into deduction guides.
-  // FIXME: Add a kind for this to give more meaningful diagnostics. But can
-  // this substitution process actually fail?
-  InstantiatingTemplate BuildingDeductionGuides(*this, Loc, Template);
+  InstantiatingTemplate BuildingDeductionGuides(
+      *this, Loc, Template,
+      Sema::InstantiatingTemplate::BuildingDeductionGuidesTag{});
   if (BuildingDeductionGuides.isInvalid())
     return;
 
@@ -2656,7 +2691,7 @@ void Sema::DeclareImplicitDeductionGuides(TemplateDecl *Template,
       cast<FunctionTemplateDecl>(
           Transform.buildSimpleDeductionGuide(Transform.DeducedType))
           ->getTemplatedDecl())
-      ->setIsCopyDeductionCandidate();
+      ->setDeductionCandidateKind(DeductionCandidate::Copy);
 }
 
 /// Diagnose the presence of a default template argument on a
@@ -2851,8 +2886,7 @@ bool Sema::CheckTemplateParameterList(TemplateParameterList *NewParams,
         NewDefaultLoc = NewTypeParm->getDefaultArgumentLoc();
         SawDefaultArgument = true;
 
-        if (!OldTypeParm->getOwningModule() ||
-            isModuleUnitOfCurrentTU(OldTypeParm->getOwningModule()))
+        if (!OldTypeParm->getOwningModule())
           RedundantDefaultArg = true;
         else if (!getASTContext().isSameDefaultTemplateArgument(OldTypeParm,
                                                                 NewTypeParm)) {
@@ -2904,8 +2938,7 @@ bool Sema::CheckTemplateParameterList(TemplateParameterList *NewParams,
         OldDefaultLoc = OldNonTypeParm->getDefaultArgumentLoc();
         NewDefaultLoc = NewNonTypeParm->getDefaultArgumentLoc();
         SawDefaultArgument = true;
-        if (!OldNonTypeParm->getOwningModule() ||
-            isModuleUnitOfCurrentTU(OldNonTypeParm->getOwningModule()))
+        if (!OldNonTypeParm->getOwningModule())
           RedundantDefaultArg = true;
         else if (!getASTContext().isSameDefaultTemplateArgument(
                      OldNonTypeParm, NewNonTypeParm)) {
@@ -2956,8 +2989,7 @@ bool Sema::CheckTemplateParameterList(TemplateParameterList *NewParams,
         OldDefaultLoc = OldTemplateParm->getDefaultArgument().getLocation();
         NewDefaultLoc = NewTemplateParm->getDefaultArgument().getLocation();
         SawDefaultArgument = true;
-        if (!OldTemplateParm->getOwningModule() ||
-            isModuleUnitOfCurrentTU(OldTemplateParm->getOwningModule()))
+        if (!OldTemplateParm->getOwningModule())
           RedundantDefaultArg = true;
         else if (!getASTContext().isSameDefaultTemplateArgument(
                      OldTemplateParm, NewTemplateParm)) {
@@ -5004,13 +5036,20 @@ Sema::BuildQualifiedTemplateIdExpr(CXXScopeSpec &SS,
     return ExprError();
   }
 
-  if (ClassTemplateDecl *Temp = R.getAsSingle<ClassTemplateDecl>()) {
-    Diag(NameInfo.getLoc(), diag::err_template_kw_refers_to_class_template)
-      << SS.getScopeRep()
-      << NameInfo.getName().getAsString() << SS.getRange();
-    Diag(Temp->getLocation(), diag::note_referenced_class_template);
+  auto DiagnoseTypeTemplateDecl = [&](TemplateDecl *Temp,
+                                      bool isTypeAliasTemplateDecl) {
+    Diag(NameInfo.getLoc(), diag::err_template_kw_refers_to_type_template)
+        << SS.getScopeRep() << NameInfo.getName().getAsString() << SS.getRange()
+        << isTypeAliasTemplateDecl;
+    Diag(Temp->getLocation(), diag::note_referenced_type_template) << 0;
     return ExprError();
-  }
+  };
+
+  if (ClassTemplateDecl *Temp = R.getAsSingle<ClassTemplateDecl>())
+    return DiagnoseTypeTemplateDecl(Temp, false);
+
+  if (TypeAliasTemplateDecl *Temp = R.getAsSingle<TypeAliasTemplateDecl>())
+    return DiagnoseTypeTemplateDecl(Temp, true);
 
   return BuildTemplateIdExpr(SS, TemplateKWLoc, R, /*ADL*/ false, TemplateArgs);
 }
@@ -11338,6 +11377,7 @@ void Sema::MarkAsLateParsedTemplate(FunctionDecl *FD, Decl *FnD,
   // Take tokens to avoid allocations
   LPT->Toks.swap(Toks);
   LPT->D = FnD;
+  LPT->FPO = getCurFPFeatures();
   LateParsedTemplateMap.insert(std::make_pair(FD, std::move(LPT)));
 
   FD->setLateTemplateParsed(true);

@@ -283,6 +283,7 @@ struct SIMachineFunctionInfo final : public yaml::MachineFunctionInfo {
   SIMode Mode;
   std::optional<FrameIndex> ScavengeFI;
   StringValue VGPRForAGPRCopy;
+  StringValue LongBranchReservedReg;
 
   SIMachineFunctionInfo() = default;
   SIMachineFunctionInfo(const llvm::SIMachineFunctionInfo &,
@@ -326,6 +327,8 @@ template <> struct MappingTraits<SIMachineFunctionInfo> {
     YamlIO.mapOptional("scavengeFI", MFI.ScavengeFI);
     YamlIO.mapOptional("vgprForAGPRCopy", MFI.VGPRForAGPRCopy,
                        StringValue()); // Don't print out when it's empty.
+    YamlIO.mapOptional("longBranchReservedReg", MFI.LongBranchReservedReg,
+                       StringValue());
   }
 };
 
@@ -380,6 +383,11 @@ class SIMachineFunctionInfo final : public AMDGPUMachineFunction {
   // communicate the unswizzled offset from the current dispatch's scratch wave
   // base to the beginning of the new function's frame.
   Register StackPtrOffsetReg = AMDGPU::SP_REG;
+
+  // Registers that may be reserved when RA doesn't allocate enough
+  // registers to plan for the case where an indirect branch ends up
+  // being needed during branch relaxation.
+  Register LongBranchReservedReg;
 
   AMDGPUFunctionArgInfo ArgInfo;
 
@@ -699,7 +707,8 @@ public:
 
   // Add system SGPRs.
   Register addWorkGroupIDX(bool HasArchitectedSGPRs) {
-    Register Reg = HasArchitectedSGPRs ? AMDGPU::TTMP9 : getNextSystemSGPR();
+    Register Reg =
+        HasArchitectedSGPRs ? (MCPhysReg)AMDGPU::TTMP9 : getNextSystemSGPR();
     ArgInfo.WorkGroupIDX = ArgDescriptor::createRegister(Reg);
     if (!HasArchitectedSGPRs)
       NumSystemSGPRs += 1;
@@ -708,7 +717,8 @@ public:
   }
 
   Register addWorkGroupIDY(bool HasArchitectedSGPRs) {
-    Register Reg = HasArchitectedSGPRs ? AMDGPU::TTMP7 : getNextSystemSGPR();
+    Register Reg =
+        HasArchitectedSGPRs ? (MCPhysReg)AMDGPU::TTMP7 : getNextSystemSGPR();
     unsigned Mask = HasArchitectedSGPRs && hasWorkGroupIDZ() ? 0xffff : ~0u;
     ArgInfo.WorkGroupIDY = ArgDescriptor::createRegister(Reg, Mask);
     if (!HasArchitectedSGPRs)
@@ -718,7 +728,8 @@ public:
   }
 
   Register addWorkGroupIDZ(bool HasArchitectedSGPRs) {
-    Register Reg = HasArchitectedSGPRs ? AMDGPU::TTMP7 : getNextSystemSGPR();
+    Register Reg =
+        HasArchitectedSGPRs ? (MCPhysReg)AMDGPU::TTMP7 : getNextSystemSGPR();
     unsigned Mask = HasArchitectedSGPRs ? 0xffff << 16 : ~0u;
     ArgInfo.WorkGroupIDZ = ArgDescriptor::createRegister(Reg, Mask);
     if (!HasArchitectedSGPRs)
@@ -888,6 +899,8 @@ public:
     StackPtrOffsetReg = Reg;
   }
 
+  void setLongBranchReservedReg(Register Reg) { LongBranchReservedReg = Reg; }
+
   // Note the unset value for this is AMDGPU::SP_REG rather than
   // NoRegister. This is mostly a workaround for MIR tests where state that
   // can't be directly computed from the function is not preserved in serialized
@@ -895,6 +908,8 @@ public:
   Register getStackPtrOffsetReg() const {
     return StackPtrOffsetReg;
   }
+
+  Register getLongBranchReservedReg() const { return LongBranchReservedReg; }
 
   Register getQueuePtrUserSGPR() const {
     return ArgInfo.QueuePtr.getRegister();

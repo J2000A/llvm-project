@@ -147,7 +147,7 @@ struct alignas(8) GlobalValueSummaryInfo {
     StringRef Name;
   } U;
 
-  GlobalValueSummaryInfo(bool HaveGVs) : U(HaveGVs) {}
+  inline GlobalValueSummaryInfo(bool HaveGVs);
 
   /// List of global value summary structures for a particular value held
   /// in the GlobalValueMap. Requires a vector in the case of multiple
@@ -574,6 +574,8 @@ public:
 
   friend class ModuleSummaryIndex;
 };
+
+GlobalValueSummaryInfo::GlobalValueSummaryInfo(bool HaveGVs) : U(HaveGVs) {}
 
 /// Alias summary information.
 class AliasSummary : public GlobalValueSummary {
@@ -1325,6 +1327,9 @@ private:
   // True if the index was created for a module compiled with -fsplit-lto-unit.
   bool EnableSplitLTOUnit;
 
+  // True if the index was created for a module compiled with -funified-lto
+  bool UnifiedLTO;
+
   // True if some of the modules were compiled with -fsplit-lto-unit and
   // some were not. Set when the combined index is created during the thin link.
   bool PartiallySplitLTOUnits = false;
@@ -1370,9 +1375,10 @@ private:
 
 public:
   // See HaveGVs variable comment.
-  ModuleSummaryIndex(bool HaveGVs, bool EnableSplitLTOUnit = false)
-      : HaveGVs(HaveGVs), EnableSplitLTOUnit(EnableSplitLTOUnit), Saver(Alloc),
-        BlockCount(0) {}
+  ModuleSummaryIndex(bool HaveGVs, bool EnableSplitLTOUnit = false,
+                     bool UnifiedLTO = false)
+      : HaveGVs(HaveGVs), EnableSplitLTOUnit(EnableSplitLTOUnit),
+        UnifiedLTO(UnifiedLTO), Saver(Alloc), BlockCount(0) {}
 
   // Current version for the module summary in bitcode files.
   // The BitcodeSummaryVersion should be bumped whenever we introduce changes
@@ -1529,6 +1535,9 @@ public:
 
   bool enableSplitLTOUnit() const { return EnableSplitLTOUnit; }
   void setEnableSplitLTOUnit() { EnableSplitLTOUnit = true; }
+
+  bool hasUnifiedLTO() const { return UnifiedLTO; }
+  void setUnifiedLTO() { UnifiedLTO = true; }
 
   bool partiallySplitLTOUnits() const { return PartiallySplitLTOUnits; }
   void setPartiallySplitLTOUnits() { PartiallySplitLTOUnits = true; }
@@ -1721,6 +1730,13 @@ public:
 
   /// Return module entry for module with the given \p ModPath.
   ModuleInfo *getModule(StringRef ModPath) {
+    auto It = ModulePathStringTable.find(ModPath);
+    assert(It != ModulePathStringTable.end() && "Module not registered");
+    return &*It;
+  }
+
+  /// Return module entry for module with the given \p ModPath.
+  const ModuleInfo *getModule(StringRef ModPath) const {
     auto It = ModulePathStringTable.find(ModPath);
     assert(It != ModulePathStringTable.end() && "Module not registered");
     return &*It;

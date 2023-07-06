@@ -2,6 +2,21 @@
 
 ! RUN: bbc -fopenacc -emit-fir %s -o - | FileCheck %s
 
+! CHECK-LABEL: acc.firstprivate.recipe @firstprivatization_ref_10x10xf32 : !fir.ref<!fir.array<10x10xf32>> init {
+! CHECK: ^bb0(%arg0: !fir.ref<!fir.array<10x10xf32>>):
+! CHECK:   acc.yield %arg0 : !fir.ref<!fir.array<10x10xf32>>
+! CHECK: } copy {
+! CHECK: ^bb0(%arg0: !fir.ref<!fir.array<10x10xf32>>, %arg1: !fir.ref<!fir.array<10x10xf32>>):
+! CHECK:   acc.terminator
+! CHECK: }
+
+! CHECK-LABEL: acc.private.recipe @privatization_ref_10x10xf32 : !fir.ref<!fir.array<10x10xf32>> init {
+! CHECK: ^bb0(%{{.*}}: !fir.ref<!fir.array<10x10xf32>>):
+! CHECK: acc.yield %{{.*}} : !fir.ref<!fir.array<10x10xf32>>
+! CHECK: }
+
+! CHECK-LABEL: func.func @_QPacc_parallel()
+
 subroutine acc_parallel
   integer :: i, j
 
@@ -14,6 +29,8 @@ subroutine acc_parallel
   logical :: ifCondition = .TRUE.
   real, dimension(10, 10) :: a, b, c
   real, pointer :: d, e
+  integer :: reduction_i
+  real :: reduction_r
 
 !CHECK: %[[A:.*]] = fir.alloca !fir.array<10x10xf32> {{{.*}}uniq_name = "{{.*}}Ea"}
 !CHECK: %[[B:.*]] = fir.alloca !fir.array<10x10xf32> {{{.*}}uniq_name = "{{.*}}Eb"}
@@ -98,6 +115,13 @@ subroutine acc_parallel
 
 !CHECK:      [[NUMGANGS2:%.*]] = fir.load %{{.*}} : !fir.ref<i32>
 !CHECK:      acc.parallel num_gangs([[NUMGANGS2]] : i32) {
+!CHECK:        acc.yield
+!CHECK-NEXT: }{{$}}
+
+  !$acc parallel num_gangs(1, 1, 1)
+  !$acc end parallel
+
+!CHECK:      acc.parallel num_gangs(%{{.*}}, %{{.*}}, %{{.*}} : i32, i32, i32) {
 !CHECK:        acc.yield
 !CHECK-NEXT: }{{$}}
 
@@ -235,6 +259,13 @@ subroutine acc_parallel
 !CHECK: acc.delete accPtr(%[[CREATE_B]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) {dataClause = 7 : i64, name = "b"}
 !CHECK: acc.delete accPtr(%[[CREATE_C]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) {dataClause = 8 : i64, name = "c"}
 
+  !$acc parallel create(c) copy(b) create(a)
+  !$acc end parallel
+!CHECK: %[[CREATE_C:.*]] = acc.create varPtr(%[[C]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) -> !fir.ref<!fir.array<10x10xf32>> {name = "c"}
+!CHECK: %[[COPY_B:.*]] = acc.copyin varPtr(%[[B]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) -> !fir.ref<!fir.array<10x10xf32>> {dataClause = 3 : i64, name = "b"}
+!CHECK: %[[CREATE_A:.*]] = acc.create varPtr(%[[A]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) -> !fir.ref<!fir.array<10x10xf32>> {name = "a"}
+!CHECK: acc.parallel   dataOperands(%[[CREATE_C]], %[[COPY_B]], %[[CREATE_A]] : !fir.ref<!fir.array<10x10xf32>>, !fir.ref<!fir.array<10x10xf32>>, !fir.ref<!fir.array<10x10xf32>>) {
+
   !$acc parallel no_create(a, b) create(zero: c)
   !$acc end parallel
 
@@ -281,11 +312,33 @@ subroutine acc_parallel
 !CHECK: acc.detach accPtr(%[[ATTACH_D]] : !fir.ptr<f32>) {dataClause = 10 : i64, name = "d"}
 !CHECK: acc.detach accPtr(%[[ATTACH_E]] : !fir.ptr<f32>) {dataClause = 10 : i64, name = "e"}
 
-  !$acc parallel private(a) firstprivate(b) private(c)
-  !$acc end parallel
+!$acc parallel private(a) firstprivate(b) private(c)
+!$acc end parallel
 
-!CHECK:      acc.parallel firstprivate(%[[B]] : !fir.ref<!fir.array<10x10xf32>>) private(%[[A]], %[[C]] : !fir.ref<!fir.array<10x10xf32>>, !fir.ref<!fir.array<10x10xf32>>) {
-!CHECK:        acc.yield
-!CHECK-NEXT: }{{$}}
+! CHECK:      %[[ACC_PRIVATE_A:.*]] = acc.private varPtr(%[[A]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) -> !fir.ref<!fir.array<10x10xf32>> {name = "a"}
+! CHECK:      %[[ACC_FPRIVATE_B:.*]] = acc.firstprivate varPtr(%[[B]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) -> !fir.ref<!fir.array<10x10xf32>> {name = "b"}
+! CHECK:      %[[ACC_PRIVATE_C:.*]] = acc.private varPtr(%[[C]] : !fir.ref<!fir.array<10x10xf32>>) bounds(%{{.*}}, %{{.*}}) -> !fir.ref<!fir.array<10x10xf32>> {name = "c"}
+! CHECK:      acc.parallel firstprivate(@firstprivatization_ref_10x10xf32 -> %[[ACC_FPRIVATE_B]] : !fir.ref<!fir.array<10x10xf32>>) private(@privatization_ref_10x10xf32 -> %[[ACC_PRIVATE_A]] : !fir.ref<!fir.array<10x10xf32>>, @privatization_ref_10x10xf32 -> %[[ACC_PRIVATE_C]] : !fir.ref<!fir.array<10x10xf32>>) {
+! CHECK:        acc.yield
+! CHECK-NEXT: }{{$}}
+
+!$acc parallel reduction(+:reduction_r) reduction(*:reduction_i)
+!$acc end parallel
+
+! CHECK:      acc.parallel reduction(@reduction_add_f32 -> %{{.*}} : !fir.ref<f32>, @reduction_mul_i32 -> %{{.*}} : !fir.ref<i32>) {
+! CHECK:        acc.yield
+! CHECK-NEXT: }{{$}}
+
+!$acc parallel default(none)
+!$acc end parallel
+
+! CHECK: acc.parallel {
+! CHECK: } attributes {defaultAttr = #acc<defaultvalue none>}
+
+!$acc parallel default(present)
+!$acc end parallel
+
+! CHECK: acc.parallel {
+! CHECK: } attributes {defaultAttr = #acc<defaultvalue present>}
 
 end subroutine acc_parallel

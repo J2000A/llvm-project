@@ -68,6 +68,7 @@ public:
   }
   bool isPICDefaultForced() const override { return true; }
   bool HasNativeLLVMSupport() const override { return true; }
+  bool IsIntegratedAssemblerDefault() const override { return true; }
 
   void
   AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
@@ -79,6 +80,10 @@ public:
 
   void AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
                            llvm::opt::ArgStringList &CmdArgs) const override;
+
+  void addClangTargetOptions(
+      const llvm::opt::ArgList &Args, llvm::opt::ArgStringList &CC1Args,
+      Action::OffloadKind DeviceOffloadingKind) const override;
 
   void addProfileRTLibs(const llvm::opt::ArgList &Args,
                         llvm::opt::ArgStringList &CmdArgs) const override;

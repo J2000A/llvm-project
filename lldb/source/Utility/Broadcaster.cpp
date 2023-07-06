@@ -23,9 +23,9 @@
 using namespace lldb;
 using namespace lldb_private;
 
-Broadcaster::Broadcaster(BroadcasterManagerSP manager_sp, const char *name)
+Broadcaster::Broadcaster(BroadcasterManagerSP manager_sp, std::string name)
     : m_broadcaster_sp(std::make_shared<BroadcasterImpl>(*this)),
-      m_manager_sp(std::move(manager_sp)), m_broadcaster_name(name) {
+      m_manager_sp(std::move(manager_sp)), m_broadcaster_name(std::move(name)) {
   Log *log = GetLog(LLDBLog::Object);
   LLDB_LOG(log, "{0} Broadcaster::Broadcaster(\"{1}\")",
            static_cast<void *>(this), GetBroadcasterName());
@@ -215,12 +215,12 @@ void Broadcaster::BroadcasterImpl::PrivateBroadcastEvent(EventSP &event_sp,
   if (log) {
     StreamString event_description;
     event_sp->Dump(&event_description);
-    LLDB_LOGF(log,
-              "%p Broadcaster(\"%s\")::BroadcastEvent (event_sp = {%s}, "
-              "unique =%i) hijack = %p",
-              static_cast<void *>(this), GetBroadcasterName(),
-              event_description.GetData(), unique,
-              static_cast<void *>(hijacking_listener_sp.get()));
+    LLDB_LOG(log,
+             "{0:x} Broadcaster(\"{1}\")::BroadcastEvent (event_sp = {2}, "
+             "unique={3}) hijack = {4:x}",
+             static_cast<void *>(this), GetBroadcasterName(),
+             event_description.GetData(), unique,
+             static_cast<void *>(hijacking_listener_sp.get()));
   }
 
   if (hijacking_listener_sp) {
@@ -377,13 +377,10 @@ bool BroadcasterManager::UnregisterListenerForEvents(
 
   // Go through the map and delete the exact matches, and build a list of
   // matches that weren't exact to re-add:
-  while (true) {
-    collection::iterator iter, end_iter = m_event_map.end();
-    iter = find_if(m_event_map.begin(), end_iter,
-                   listener_matches_and_shared_bits);
-    if (iter == end_iter) {
+  for (auto iter = m_event_map.begin(), end = m_event_map.end();;) {
+    iter = find_if(iter, end, listener_matches_and_shared_bits);
+    if (iter == end)
       break;
-    }
     uint32_t iter_event_bits = (*iter).first.GetEventBits();
     removed_some = true;
 
@@ -392,12 +389,12 @@ bool BroadcasterManager::UnregisterListenerForEvents(
       to_be_readded.emplace_back(event_spec.GetBroadcasterClass(),
                                  new_event_bits);
     }
-    m_event_map.erase(iter);
+    iter = m_event_map.erase(iter);
   }
 
   // Okay now add back the bits that weren't completely removed:
-  for (size_t i = 0; i < to_be_readded.size(); i++) {
-    m_event_map.insert(event_listener_key(to_be_readded[i], listener_sp));
+  for (const auto &event : to_be_readded) {
+    m_event_map.insert(event_listener_key(event, listener_sp));
   }
 
   return removed_some;
@@ -412,9 +409,8 @@ ListenerSP BroadcasterManager::GetListenerForEventSpec(
     return input.first.IsContainedIn(event_spec);
   };
 
-  collection::const_iterator iter, end_iter = m_event_map.end();
-  iter = find_if(m_event_map.begin(), end_iter, event_spec_matches);
-  if (iter != end_iter)
+  auto iter = llvm::find_if(m_event_map, event_spec_matches);
+  if (iter != m_event_map.end())
     return (*iter).second;
 
   return nullptr;
@@ -427,24 +423,21 @@ void BroadcasterManager::RemoveListener(Listener *listener) {
     return input.get() == listener;
   };
 
-  listener_collection::iterator iter = m_listeners.begin(),
-                                end_iter = m_listeners.end();
-
-  iter = std::find_if(iter, end_iter, listeners_predicate);
-  if (iter != end_iter)
+  if (auto iter = llvm::find_if(m_listeners, listeners_predicate);
+      iter != m_listeners.end())
     m_listeners.erase(iter);
 
-  while (true) {
-    auto events_predicate =
-        [&listener](const event_listener_key &input) -> bool {
-      return input.second.get() == listener;
-    };
-    collection::iterator iter, end_iter = m_event_map.end();
-    iter = find_if(m_event_map.begin(), end_iter, events_predicate);
-    if (iter == end_iter)
+  auto events_predicate = [listener](const event_listener_key &input) -> bool {
+    return input.second.get() == listener;
+  };
+
+  // TODO: use 'std::map::erase_if' when moving to c++20.
+  for (auto iter = m_event_map.begin(), end = m_event_map.end();;) {
+    iter = find_if(iter, end, events_predicate);
+    if (iter == end)
       break;
 
-    m_event_map.erase(iter);
+    iter = m_event_map.erase(iter);
   }
 }
 
@@ -459,13 +452,13 @@ void BroadcasterManager::RemoveListener(const lldb::ListenerSP &listener_sp) {
   if (m_listeners.erase(listener_sp) == 0)
     return;
 
-  while (true) {
-    collection::iterator iter, end_iter = m_event_map.end();
-    iter = find_if(m_event_map.begin(), end_iter, listener_matches);
+  // TODO: use 'std::map::erase_if' when moving to c++20.
+  for (auto iter = m_event_map.begin(), end_iter = m_event_map.end();;) {
+    iter = find_if(iter, end_iter, listener_matches);
     if (iter == end_iter)
       break;
 
-    m_event_map.erase(iter);
+    iter = m_event_map.erase(iter);
   }
 }
 
@@ -490,11 +483,9 @@ void BroadcasterManager::SignUpListenersForBroadcaster(
 
 void BroadcasterManager::Clear() {
   std::lock_guard<std::recursive_mutex> guard(m_manager_mutex);
-  listener_collection::iterator end_iter = m_listeners.end();
 
-  for (listener_collection::iterator iter = m_listeners.begin();
-       iter != end_iter; iter++)
-    (*iter)->BroadcasterManagerWillDestruct(this->shared_from_this());
+  for (auto &listener : m_listeners)
+    listener->BroadcasterManagerWillDestruct(this->shared_from_this());
   m_listeners.clear();
   m_event_map.clear();
 }

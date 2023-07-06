@@ -23,19 +23,23 @@ func.func @testenterdataop(%a: memref<f32>) -> () {
 
 // -----
 
-func.func @testexitdataop(%a: memref<10xf32>) -> () {
+func.func @testexitdataop(%a: memref<f32>) -> () {
   %ifCond = arith.constant true
-  acc.exit_data if(%ifCond) delete(%a: memref<10xf32>)
+  %0 = acc.getdeviceptr varPtr(%a : memref<f32>) -> memref<f32>
+  acc.exit_data if(%ifCond) dataOperands(%0 : memref<f32>)
+  acc.delete accPtr(%0 : memref<f32>)
   return
 }
 
-// CHECK: acc.exit_data delete(%{{.*}} : memref<10xf32>)
+// CHECK: acc.exit_data dataOperands(%{{.*}} : memref<f32>)
 
 // -----
 
-func.func @testexitdataop(%a: memref<10xf32>) -> () {
+func.func @testexitdataop(%a: memref<f32>) -> () {
   %ifCond = arith.constant false
-  acc.exit_data if(%ifCond) delete(%a: memref<10xf32>)
+  %0 = acc.getdeviceptr varPtr(%a : memref<f32>) -> memref<f32>
+  acc.exit_data if(%ifCond) dataOperands(%0 : memref<f32>)
+  acc.delete accPtr(%0 : memref<f32>)
   return
 }
 
@@ -80,13 +84,15 @@ func.func @testenterdataop(%a: memref<f32>, %ifCond: i1) -> () {
 
 // -----
 
-func.func @testexitdataop(%a: memref<10xf32>, %ifCond: i1) -> () {
-  acc.exit_data if(%ifCond) delete(%a: memref<10xf32>)
+func.func @testexitdataop(%a: memref<f32>, %ifCond: i1) -> () {
+  %0 = acc.getdeviceptr varPtr(%a : memref<f32>) -> memref<f32>
+  acc.exit_data if(%ifCond) dataOperands(%0 : memref<f32>)
+  acc.delete accPtr(%0 : memref<f32>)
   return
 }
 
-// CHECK: func @testexitdataop(%{{.*}}: memref<10xf32>, [[IFCOND:%.*]]: i1)
-// CHECK:   acc.exit_data if(%{{.*}}) delete(%{{.*}} : memref<10xf32>)
+// CHECK: func @testexitdataop(%{{.*}}: memref<f32>, [[IFCOND:%.*]]: i1)
+// CHECK:   acc.exit_data if(%{{.*}}) dataOperands(%{{.*}} : memref<f32>)
 
 // -----
 
@@ -99,3 +105,40 @@ func.func @testupdateop(%a: memref<f32>, %ifCond: i1) -> () {
 
 // CHECK:  func @testupdateop(%{{.*}}: memref<f32>, [[IFCOND:%.*]]: i1)
 // CHECK:    acc.update if(%{{.*}}) dataOperands(%{{.*}} : memref<f32>)
+
+// -----
+
+func.func @testhostdataop(%a: memref<f32>, %ifCond: i1) -> () {
+  %0 = acc.use_device varPtr(%a : memref<f32>) -> memref<f32>
+  %false = arith.constant false
+  acc.host_data dataOperands(%0 : memref<f32>) if(%false) {
+    acc.loop {
+      acc.yield
+    }
+    acc.loop {
+      acc.yield
+    }
+    acc.terminator
+  }
+  return
+}
+
+// CHECK-LABEL: func.func @testhostdataop
+// CHECK-NOT: acc.host_data
+// CHECK: acc.loop
+// CHECK: acc.yield
+// CHECK: acc.loop
+// CHECK: acc.yield
+
+// -----
+
+func.func @testhostdataop(%a: memref<f32>, %ifCond: i1) -> () {
+  %0 = acc.use_device varPtr(%a : memref<f32>) -> memref<f32>
+  %true = arith.constant true
+  acc.host_data dataOperands(%0 : memref<f32>) if(%true) {
+  }
+  return
+}
+
+// CHECK-LABEL: func.func @testhostdataop
+// CHECK: acc.host_data dataOperands(%{{.*}} : memref<f32>) {

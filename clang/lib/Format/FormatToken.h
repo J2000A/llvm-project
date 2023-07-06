@@ -156,6 +156,9 @@ namespace format {
   /* list of port connections or parameters in a module instantiation */       \
   TYPE(VerilogInstancePortComma)                                               \
   TYPE(VerilogInstancePortLParen)                                              \
+  /* A parenthesized list within which line breaks are inserted by the         \
+   * formatter, for example the list of ports in a module header. */           \
+  TYPE(VerilogMultiLineListLParen)                                             \
   /* for the base in a number literal, not including the quote */              \
   TYPE(VerilogNumberBase)                                                      \
   /* like `(strong1, pull0)` */                                                \
@@ -414,6 +417,12 @@ public:
   /// This can be used to determine what the user wrote in the original code
   /// and thereby e.g. leave an empty line between two function definitions.
   unsigned NewlinesBefore = 0;
+
+  /// The number of newlines immediately before the \c Token after formatting.
+  ///
+  /// This is used to avoid overlapping whitespace replacements when \c Newlines
+  /// is recomputed for a finalized preprocessor branching directive.
+  int Newlines = -1;
 
   /// The offset just past the last '\n' in this token's leading
   /// whitespace (relative to \c WhiteSpaceStart). 0 if there is no '\n'.

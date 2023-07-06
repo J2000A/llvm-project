@@ -2,7 +2,7 @@
 // RUN: mlir-opt %s --mlir-print-op-generic | mlir-opt | FileCheck %s
 
 #CSR = #sparse_tensor.encoding<{
-  dimLevelType = ["dense", "compressed"]
+  lvlTypes = ["dense", "compressed"]
 }>
 
 // CHECK-LABEL: func @test_clone
@@ -56,4 +56,12 @@ func.func @test_dealloc_tensor_op(%arg0: tensor<4xi32>) {
   // CHECK: bufferization.dealloc_tensor {{.*}} : tensor<4xi32>
   bufferization.dealloc_tensor %arg0 : tensor<4xi32>
   return
+}
+
+// CHECK-LABEL: func @test_copy_tensor_op
+func.func @test_copy_tensor_op(%arg0: tensor<?xf32>, %arg1: tensor<?xf32>)
+    -> tensor<?xf32> {
+  // CHECK: bufferization.copy_tensor {{.*}} : tensor<?xf32>
+  %1 = bufferization.copy_tensor %arg0, %arg1 : tensor<?xf32>
+  return %1 : tensor<?xf32>
 }

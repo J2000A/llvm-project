@@ -39,10 +39,10 @@
 ! CHECK-NEXT: -finput-charset=<value> Specify the default character set for source files
 ! CHECK-NEXT: -fintrinsic-modules-path <dir>
 ! CHECK-NEXT:                        Specify where to find the compiled intrinsic modules
-! CHECK-NEXT: -flang-experimental-exec
-! CHECK-NEXT:                        Enable support for generating executables (experimental)
 ! CHECK-NEXT: -flang-experimental-hlfir
 ! CHECK-NEXT:                        Use HLFIR lowering (experimental)
+! CHECK-NEXT: -flang-experimental-polymorphism
+! CHECK-NEXT:                        Enable Fortran 2003 polymorphism (experimental)
 ! CHECK-NEXT: -flarge-sizes          Use INTEGER(KIND=8) for the result type in size-related intrinsics
 ! CHECK-NEXT: -flogical-abbreviations Enable logical abbreviations
 ! CHECK-NEXT: -flto=<value> Set LTO mode
@@ -55,6 +55,8 @@
 ! CHECK-NEXT: -fno-version-loops-for-stride
 ! CHECK-NEXT:                        Do not create unit-strided loops (default)
 ! CHECK-NEXT: -fopenacc              Enable OpenACC
+! CHECK-NEXT: -fopenmp-version=<value>
+! CHECK-NEXT:                        Set OpenMP version (e.g. 45 for OpenMP 4.5, 50 for OpenMP 5.0). Default value is 50 for Clang and 11 for Flang
 ! CHECK-NEXT: -fopenmp               Parse OpenMP pragmas and generate parallel code.
 ! CHECK-NEXT: -fpass-plugin=<dsopath> Load pass plugin from a dynamic shared object file (only with new pass manager).
 ! CHECK-NEXT: -freciprocal-math      Allow division operations to be reassociated

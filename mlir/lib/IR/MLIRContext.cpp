@@ -175,11 +175,6 @@ public:
   /// destruction with the context.
   std::unique_ptr<llvm::ThreadPool> ownedThreadPool;
 
-  /// This is a list of dialects that are created referring to this context.
-  /// The MLIRContext owns the objects.
-  DenseMap<StringRef, std::unique_ptr<Dialect>> loadedDialects;
-  DialectRegistry dialectsRegistry;
-
   /// An allocator used for AbstractAttribute and AbstractType objects.
   llvm::BumpPtrAllocator abstractDialectSymbolAllocator;
 
@@ -192,6 +187,12 @@ public:
   /// This is a sorted container of registered operations for a deterministic
   /// and efficient `getRegisteredOperations` implementation.
   SmallVector<RegisteredOperationName, 0> sortedRegisteredOperations;
+
+  /// This is a list of dialects that are created referring to this context.
+  /// The MLIRContext owns the objects. These need to be declared after the
+  /// registered operations to ensure correct destruction order.
+  DenseMap<StringRef, std::unique_ptr<Dialect>> loadedDialects;
+  DialectRegistry dialectsRegistry;
 
   /// A mutex used when accessing operation information.
   llvm::sys::SmartRWMutex<true> operationInfoMutex;
@@ -456,8 +457,9 @@ MLIRContext::getOrLoadDialect(StringRef dialectNamespace, TypeID dialectID,
     // dialect is currently being loaded. Re-lookup the address in
     // loadedDialects because the table might have been rehashed by recursive
     // dialect loading in ctor().
-    std::unique_ptr<Dialect> &dialect = impl.loadedDialects[dialectNamespace] =
-        ctor();
+    std::unique_ptr<Dialect> &dialectOwned =
+        impl.loadedDialects[dialectNamespace] = ctor();
+    Dialect *dialect = dialectOwned.get();
     assert(dialect && "dialect ctor failed");
 
     // Refresh all the identifiers dialect field, this catches cases where a
@@ -466,13 +468,13 @@ MLIRContext::getOrLoadDialect(StringRef dialectNamespace, TypeID dialectID,
     auto stringAttrsIt = impl.dialectReferencingStrAttrs.find(dialectNamespace);
     if (stringAttrsIt != impl.dialectReferencingStrAttrs.end()) {
       for (StringAttrStorage *storage : stringAttrsIt->second)
-        storage->referencedDialect = dialect.get();
+        storage->referencedDialect = dialect;
       impl.dialectReferencingStrAttrs.erase(stringAttrsIt);
     }
 
     // Apply any extensions to this newly loaded dialect.
-    impl.dialectsRegistry.applyExtensions(dialect.get());
-    return dialect.get();
+    impl.dialectsRegistry.applyExtensions(dialect);
+    return dialect;
   }
 
 #ifndef NDEBUG
@@ -717,10 +719,7 @@ const AbstractAttribute &AbstractAttribute::lookup(TypeID typeID,
 AbstractAttribute *AbstractAttribute::lookupMutable(TypeID typeID,
                                                     MLIRContext *context) {
   auto &impl = context->getImpl();
-  auto it = impl.registeredAttributes.find(typeID);
-  if (it == impl.registeredAttributes.end())
-    return nullptr;
-  return it->second;
+  return impl.registeredAttributes.lookup(typeID);
 }
 
 //===----------------------------------------------------------------------===//
@@ -929,10 +928,7 @@ const AbstractType &AbstractType::lookup(TypeID typeID, MLIRContext *context) {
 
 AbstractType *AbstractType::lookupMutable(TypeID typeID, MLIRContext *context) {
   auto &impl = context->getImpl();
-  auto it = impl.registeredTypes.find(typeID);
-  if (it == impl.registeredTypes.end())
-    return nullptr;
-  return it->second;
+  return impl.registeredTypes.lookup(typeID);
 }
 
 //===----------------------------------------------------------------------===//

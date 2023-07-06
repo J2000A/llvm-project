@@ -100,7 +100,7 @@ LIBC_INLINE uint32_t get_lane_size() { return LANE_SIZE; }
 /// Returns the bit-mask of active threads in the current warp.
 [[clang::convergent]] LIBC_INLINE uint64_t get_lane_mask() {
   uint32_t mask;
-  asm volatile("activemask.b32 %0;" : "=r"(mask));
+  LIBC_INLINE_ASM("activemask.b32 %0;" : "=r"(mask));
   return mask;
 }
 
@@ -118,6 +118,7 @@ LIBC_INLINE uint32_t get_lane_size() { return LANE_SIZE; }
 #endif
 }
 
+/// Returns a bitmask of threads in the current lane for which \p x is true.
 [[clang::convergent]] LIBC_INLINE uint64_t ballot(uint64_t lane_mask, bool x) {
 #if __CUDA_ARCH__ >= 600
   return __nvvm_vote_ballot_sync(lane_mask, x);
@@ -131,6 +132,20 @@ LIBC_INLINE uint32_t get_lane_size() { return LANE_SIZE; }
 /// Waits for all threads in the warp to reconverge for independent scheduling.
 [[clang::convergent]] LIBC_INLINE void sync_lane(uint64_t mask) {
   __nvvm_bar_warp_sync(mask);
+}
+
+/// Returns the current value of the GPU's processor clock.
+LIBC_INLINE uint64_t processor_clock() {
+  uint64_t timestamp;
+  LIBC_INLINE_ASM("mov.u64  %0, %%clock64;" : "=l"(timestamp));
+  return timestamp;
+}
+
+/// Returns a global fixed-frequency timer at nanosecond frequency.
+LIBC_INLINE uint64_t fixed_frequency_clock() {
+  uint64_t nsecs;
+  LIBC_INLINE_ASM("mov.u64  %0, %%globaltimer;" : "=l"(nsecs));
+  return nsecs;
 }
 
 } // namespace gpu

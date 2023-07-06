@@ -45,7 +45,8 @@ class LoopAnnotationImporter;
 /// that are introduced at the beginning of the region.
 class ModuleImport {
 public:
-  ModuleImport(ModuleOp mlirModule, std::unique_ptr<llvm::Module> llvmModule);
+  ModuleImport(ModuleOp mlirModule, std::unique_ptr<llvm::Module> llvmModule,
+               bool emitExpensiveWarnings);
 
   /// Calls the LLVMImportInterface initialization that queries the registered
   /// dialect interfaces for the supported LLVM IR intrinsics and metadata kinds
@@ -55,6 +56,10 @@ public:
 
   /// Converts all functions of the LLVM module to MLIR functions.
   LogicalResult convertFunctions();
+
+  /// Converts all comdat selectors of the LLVM module to MLIR comdat
+  /// operations.
+  LogicalResult convertComdats();
 
   /// Converts all global variables of the LLVM module to MLIR global variables.
   LogicalResult convertGlobals();
@@ -136,9 +141,15 @@ public:
   /// Converts `value` to an integer attribute. Asserts if the matching fails.
   IntegerAttr matchIntegerAttr(llvm::Value *value);
 
+  /// Converts `value` to a float attribute. Asserts if the matching fails.
+  FloatAttr matchFloatAttr(llvm::Value *value);
+
   /// Converts `value` to a local variable attribute. Asserts if the matching
   /// fails.
   DILocalVariableAttr matchLocalVariableAttr(llvm::Value *value);
+
+  /// Converts `value` to a label attribute. Asserts if the matching fails.
+  DILabelAttr matchLabelAttr(llvm::Value *value);
 
   /// Converts `value` to an array of symbol references pointing to alias scope
   /// operations, or returns failure if the conversion fails.
@@ -255,11 +266,14 @@ private:
   /// DictionaryAttr for the LLVM dialect.
   DictionaryAttr convertParameterAttribute(llvm::AttributeSet llvmParamAttrs,
                                            OpBuilder &builder);
-  /// Returns the builtin type equivalent to be used in attributes for the given
-  /// LLVM IR dialect type.
-  Type getStdTypeForAttr(Type type);
-  /// Returns `value` as an attribute to attach to a GlobalOp.
-  Attribute getConstantAsAttr(llvm::Constant *value);
+  /// Returns the builtin type equivalent to the given LLVM dialect type or
+  /// nullptr if there is no equivalent. The returned type can be used to create
+  /// an attribute for a GlobalOp or a ConstantOp.
+  Type getBuiltinTypeForAttr(Type type);
+  /// Returns `constant` as an attribute to attach to a GlobalOp or ConstantOp
+  /// or nullptr if the constant is not convertible. It supports scalar integer
+  /// and float constants as well as shaped types thereof including strings.
+  Attribute getConstantAsAttr(llvm::Constant *constant);
   /// Returns the topologically sorted set of transitive dependencies needed to
   /// convert the given constant.
   SetVector<llvm::Constant *> getConstantsToConvert(llvm::Constant *constant);
@@ -278,6 +292,10 @@ private:
   /// metadata that converts to MLIR operations. Creates the global metadata
   /// operation on the first invocation.
   MetadataOp getGlobalMetadataOp();
+  /// Returns a global comdat operation that serves as a container for LLVM
+  /// comdat selectors. Creates the global comdat operation on the first
+  /// invocation.
+  ComdatOp getGlobalComdatOp();
   /// Performs conversion of LLVM TBAA metadata starting from
   /// `node`. On exit from this function all nodes reachable
   /// from `node` are converted, and tbaaMapping map is updated
@@ -295,6 +313,10 @@ private:
   /// operation. Returns success if all conversions succeed and failure
   /// otherwise.
   LogicalResult processAliasScopeMetadata(const llvm::MDNode *node);
+  /// Converts the given LLVM comdat struct to an MLIR comdat selector operation
+  /// and stores a mapping from the struct to the symbol pointing to the
+  /// translated operation.
+  void processComdat(const llvm::Comdat *comdat);
 
   /// Builder pointing at where the next instruction should be generated.
   OpBuilder builder;
@@ -306,6 +328,8 @@ private:
   Operation *globalInsertionOp = nullptr;
   /// Operation to insert metadata operations into.
   MetadataOp globalMetadataOp = nullptr;
+  /// Operation to insert comdat selector operations into.
+  ComdatOp globalComdatOp = nullptr;
   /// The current context.
   MLIRContext *context;
   /// The MLIR module being created.
@@ -331,12 +355,20 @@ private:
   /// Mapping between LLVM TBAA metadata nodes and symbol references to the LLVM
   /// dialect TBAA operations corresponding to these nodes.
   DenseMap<const llvm::MDNode *, SymbolRefAttr> tbaaMapping;
+  /// Mapping between LLVM comdat structs and symbol references to LLVM dialect
+  /// comdat selector operations corresponding to these structs.
+  DenseMap<const llvm::Comdat *, SymbolRefAttr> comdatMapping;
   /// The stateful type translator (contains named structs).
   LLVM::TypeFromLLVMIRTranslator typeTranslator;
   /// Stateful debug information importer.
   std::unique_ptr<detail::DebugImporter> debugImporter;
   /// Loop annotation importer.
   std::unique_ptr<detail::LoopAnnotationImporter> loopAnnotationImporter;
+
+  /// An option to control if expensive but uncritical diagnostics should be
+  /// emitted. Avoids generating warnings for unhandled debug intrinsics and
+  /// metadata that otherwise dominate the translation time for large inputs.
+  bool emitExpensiveWarnings;
 };
 
 } // namespace LLVM

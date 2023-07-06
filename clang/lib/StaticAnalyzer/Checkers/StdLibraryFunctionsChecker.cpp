@@ -49,6 +49,7 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerHelpers.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/DynamicExtent.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 
@@ -105,6 +106,11 @@ class StdLibraryFunctionsChecker
   /// Get a string representation of an argument index.
   /// E.g.: (1) -> '1st arg', (2) - > '2nd arg'
   static void printArgDesc(ArgNo, llvm::raw_ostream &Out);
+  /// Print value X of the argument in form " (which is X)",
+  /// if the value is a fixed known value, otherwise print nothing.
+  /// This is used as simple explanation of values if possible.
+  static void printArgValueInfo(ArgNo ArgN, ProgramStateRef State,
+                                const CallEvent &Call, llvm::raw_ostream &Out);
   /// Append textual description of a numeric range [RMin,RMax] to
   /// \p Out.
   static void appendInsideRangeDesc(llvm::APSInt RMin, llvm::APSInt RMax,
@@ -434,6 +440,10 @@ class StdLibraryFunctionsChecker
     void describe(DescriptionKind DK, const CallEvent &Call,
                   ProgramStateRef State, const Summary &Summary,
                   llvm::raw_ostream &Out) const override;
+
+    bool describeArgumentValue(const CallEvent &Call, ProgramStateRef State,
+                               const Summary &Summary,
+                               llvm::raw_ostream &Out) const override;
 
     std::vector<ArgNo> getArgsToTrack() const override {
       std::vector<ArgNo> Result{ArgN};
@@ -781,13 +791,8 @@ public:
   void checkPostCall(const CallEvent &Call, CheckerContext &C) const;
   bool evalCall(const CallEvent &Call, CheckerContext &C) const;
 
-  enum CheckKind {
-    CK_StdCLibraryFunctionArgsChecker,
-    CK_StdCLibraryFunctionsTesterChecker,
-    CK_NumCheckKinds
-  };
-  bool ChecksEnabled[CK_NumCheckKinds] = {false};
-  CheckerNameRef CheckNames[CK_NumCheckKinds];
+  CheckerNameRef CheckName;
+  bool AddTestFunctions = false;
 
   bool DisplayLoadedSummaries = false;
   bool ModelPOSIX = false;
@@ -804,8 +809,6 @@ private:
   void reportBug(const CallEvent &Call, ExplodedNode *N,
                  const ValueConstraint *VC, const ValueConstraint *NegatedVC,
                  const Summary &Summary, CheckerContext &C) const {
-    if (!ChecksEnabled[CK_StdCLibraryFunctionArgsChecker])
-      return;
     assert(Call.getDecl() &&
            "Function found in summary must have a declaration available");
     SmallString<256> Msg;
@@ -825,8 +828,8 @@ private:
     Msg[0] = toupper(Msg[0]);
     if (!BT_InvalidArg)
       BT_InvalidArg = std::make_unique<BugType>(
-          CheckNames[CK_StdCLibraryFunctionArgsChecker],
-          "Function call with invalid argument", categories::LogicError);
+          CheckName, "Function call with invalid argument",
+          categories::LogicError);
     auto R = std::make_unique<PathSensitiveBugReport>(*BT_InvalidArg, Msg, N);
 
     for (ArgNo ArgN : VC->getArgsToTrack()) {
@@ -868,6 +871,16 @@ void StdLibraryFunctionsChecker::printArgDesc(
   Out << std::to_string(ArgN + 1);
   Out << llvm::getOrdinalSuffix(ArgN + 1);
   Out << " argument";
+}
+
+void StdLibraryFunctionsChecker::printArgValueInfo(ArgNo ArgN,
+                                                   ProgramStateRef State,
+                                                   const CallEvent &Call,
+                                                   llvm::raw_ostream &Out) {
+  if (const llvm::APSInt *Val =
+          State->getStateManager().getSValBuilder().getKnownValue(
+              State, getArgSVal(Call, ArgN)))
+    Out << " (which is " << *Val << ")";
 }
 
 void StdLibraryFunctionsChecker::appendInsideRangeDesc(llvm::APSInt RMin,
@@ -929,11 +942,9 @@ void StdLibraryFunctionsChecker::RangeConstraint::applyOnWithinRange(
   if (Ranges.empty())
     return;
 
-  const IntRangeVector &R = getRanges();
-  size_t E = R.size();
-  for (size_t I = 0; I != E; ++I) {
-    const llvm::APSInt &Min = BVF.getValue(R[I].first, ArgT);
-    const llvm::APSInt &Max = BVF.getValue(R[I].second, ArgT);
+  for (auto [Start, End] : getRanges()) {
+    const llvm::APSInt &Min = BVF.getValue(Start, ArgT);
+    const llvm::APSInt &Max = BVF.getValue(End, ArgT);
     assert(Min <= Max);
     if (!F(Min, Max))
       return;
@@ -1179,11 +1190,27 @@ void StdLibraryFunctionsChecker::BufferSizeConstraint::describe(
   } else if (SizeArgN) {
     Out << "the value of the ";
     printArgDesc(*SizeArgN, Out);
+    printArgValueInfo(*SizeArgN, State, Call, Out);
     if (SizeMultiplierArgN) {
       Out << " times the ";
       printArgDesc(*SizeMultiplierArgN, Out);
+      printArgValueInfo(*SizeMultiplierArgN, State, Call, Out);
     }
   }
+}
+
+bool StdLibraryFunctionsChecker::BufferSizeConstraint::describeArgumentValue(
+    const CallEvent &Call, ProgramStateRef State, const Summary &Summary,
+    llvm::raw_ostream &Out) const {
+  SVal BufV = getArgSVal(Call, getArgNo());
+  SVal BufDynSize = getDynamicExtentWithOffset(State, BufV);
+  if (const llvm::APSInt *Val =
+          State->getStateManager().getSValBuilder().getKnownValue(State,
+                                                                  BufDynSize)) {
+    Out << "is a buffer with size " << *Val;
+    return true;
+  }
+  return false;
 }
 
 void StdLibraryFunctionsChecker::checkPreCall(const CallEvent &Call,
@@ -1348,12 +1375,11 @@ bool StdLibraryFunctionsChecker::Signature::matches(
   }
 
   // Check the argument types.
-  for (size_t I = 0, E = ArgTys.size(); I != E; ++I) {
-    QualType ArgTy = ArgTys[I];
+  for (auto [Idx, ArgTy] : llvm::enumerate(ArgTys)) {
     if (isIrrelevant(ArgTy))
       continue;
     QualType FDArgTy =
-        RemoveRestrict(FD->getParamDecl(I)->getType().getCanonicalType());
+        RemoveRestrict(FD->getParamDecl(Idx)->getType().getCanonicalType());
     if (ArgTy != FDArgTy)
       return false;
   }
@@ -1388,10 +1414,12 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
     CheckerContext &C) const {
   if (SummariesInitialized)
     return;
+  SummariesInitialized = true;
 
   SValBuilder &SVB = C.getSValBuilder();
   BasicValueFactory &BVF = SVB.getBasicValueFactory();
   const ASTContext &ACtx = BVF.getContext();
+  Preprocessor &PP = C.getPreprocessor();
 
   // Helper class to lookup a type by its name.
   class LookupType {
@@ -1527,14 +1555,11 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
   const RangeInt UCharRangeMax =
       std::min(BVF.getMaxValue(ACtx.UnsignedCharTy).getLimitedValue(), IntMax);
 
-  // The platform dependent value of EOF.
-  // Try our best to parse this from the Preprocessor, otherwise fallback to -1.
-  const auto EOFv = [&C]() -> RangeInt {
-    if (const std::optional<int> OptInt =
-            tryExpandAsInteger("EOF", C.getPreprocessor()))
-      return *OptInt;
-    return -1;
-  }();
+  // Get platform dependent values of some macros.
+  // Try our best to parse this from the Preprocessor, otherwise fallback to a
+  // default value (what is found in a library header).
+  const auto EOFv = tryExpandAsInteger("EOF", PP).value_or(-1);
+  const auto AT_FDCWDv = tryExpandAsInteger("AT_FDCWD", PP).value_or(-100);
 
   // Auxiliary class to aid adding summaries to the summary map.
   struct AddToFunctionSummaryMap {
@@ -1979,6 +2004,12 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
         ConstraintSet{ReturnValueCondition(WithinRange, Range(-1, IntMax))};
     const auto &ReturnsValidFileDescriptor = ReturnsNonnegative;
 
+    auto ValidFileDescriptorOrAtFdcwd = [&](ArgNo ArgN) {
+      return std::make_shared<RangeConstraint>(
+          ArgN, WithinRange, Range({AT_FDCWDv, AT_FDCWDv}, {0, IntMax}),
+          "a valid file descriptor or AT_FDCWD");
+    };
+
     // FILE *fopen(const char *restrict pathname, const char *restrict mode);
     addToFunctionSummaryMap(
         "fopen",
@@ -2130,6 +2161,7 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
         Summary(NoEvalCall)
             .Case(ReturnsZero, ErrnoMustNotBeChecked)
             .Case(ReturnsMinusOne, ErrnoNEZeroIrrelevant)
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(0)))
             .ArgConstraint(NotNull(ArgNo(1))));
 
     // int dup(int fildes);
@@ -2207,7 +2239,7 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
             .Case(ReturnsZero, ErrnoMustNotBeChecked)
             .Case(ReturnsMinusOne, ErrnoNEZeroIrrelevant)
             .ArgConstraint(NotNull(ArgNo(0)))
-            .ArgConstraint(ArgumentCondition(1, WithinRange, Range(0, IntMax)))
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(1)))
             .ArgConstraint(NotNull(ArgNo(2))));
 
     // int lockf(int fd, int cmd, off_t len);
@@ -2318,6 +2350,7 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
         Summary(NoEvalCall)
             .Case(ReturnsZero, ErrnoMustNotBeChecked)
             .Case(ReturnsMinusOne, ErrnoNEZeroIrrelevant)
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(0)))
             .ArgConstraint(NotNull(ArgNo(1))));
 
     std::optional<QualType> Dev_tTy = lookupTy("dev_t");
@@ -2339,6 +2372,7 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
         Summary(NoEvalCall)
             .Case(ReturnsZero, ErrnoMustNotBeChecked)
             .Case(ReturnsMinusOne, ErrnoNEZeroIrrelevant)
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(0)))
             .ArgConstraint(NotNull(ArgNo(1))));
 
     // int chmod(const char *path, mode_t mode);
@@ -2357,7 +2391,7 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
         Summary(NoEvalCall)
             .Case(ReturnsZero, ErrnoMustNotBeChecked)
             .Case(ReturnsMinusOne, ErrnoNEZeroIrrelevant)
-            .ArgConstraint(ArgumentCondition(0, WithinRange, Range(0, IntMax)))
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(0)))
             .ArgConstraint(NotNull(ArgNo(1))));
 
     // int fchmod(int fildes, mode_t mode);
@@ -2381,7 +2415,7 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
         Summary(NoEvalCall)
             .Case(ReturnsZero, ErrnoMustNotBeChecked)
             .Case(ReturnsMinusOne, ErrnoNEZeroIrrelevant)
-            .ArgConstraint(ArgumentCondition(0, WithinRange, Range(0, IntMax)))
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(0)))
             .ArgConstraint(NotNull(ArgNo(1))));
 
     // int chown(const char *path, uid_t owner, gid_t group);
@@ -2446,9 +2480,9 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
         Summary(NoEvalCall)
             .Case(ReturnsZero, ErrnoMustNotBeChecked)
             .Case(ReturnsMinusOne, ErrnoNEZeroIrrelevant)
-            .ArgConstraint(ArgumentCondition(0, WithinRange, Range(0, IntMax)))
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(0)))
             .ArgConstraint(NotNull(ArgNo(1)))
-            .ArgConstraint(ArgumentCondition(2, WithinRange, Range(0, IntMax)))
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(2)))
             .ArgConstraint(NotNull(ArgNo(3))));
 
     // int unlink(const char *pathname);
@@ -2466,7 +2500,7 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
         Summary(NoEvalCall)
             .Case(ReturnsZero, ErrnoMustNotBeChecked)
             .Case(ReturnsMinusOne, ErrnoNEZeroIrrelevant)
-            .ArgConstraint(ArgumentCondition(0, WithinRange, Range(0, IntMax)))
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(0)))
             .ArgConstraint(NotNull(ArgNo(1))));
 
     std::optional<QualType> StructStatTy = lookupTy("stat");
@@ -2515,7 +2549,7 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
         Summary(NoEvalCall)
             .Case(ReturnsZero, ErrnoMustNotBeChecked)
             .Case(ReturnsMinusOne, ErrnoNEZeroIrrelevant)
-            .ArgConstraint(ArgumentCondition(0, WithinRange, Range(0, IntMax)))
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(0)))
             .ArgConstraint(NotNull(ArgNo(1)))
             .ArgConstraint(NotNull(ArgNo(2))));
 
@@ -2690,7 +2724,7 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
                    ReturnValueCondition(WithinRange, Range(0, Ssize_tMax))},
                   ErrnoMustNotBeChecked)
             .Case(ReturnsMinusOne, ErrnoNEZeroIrrelevant)
-            .ArgConstraint(ArgumentCondition(0, WithinRange, Range(0, IntMax)))
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(0)))
             .ArgConstraint(NotNull(ArgNo(1)))
             .ArgConstraint(NotNull(ArgNo(2)))
             .ArgConstraint(BufferSize(/*Buffer=*/ArgNo(2),
@@ -2707,7 +2741,9 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
         Summary(NoEvalCall)
             .Case(ReturnsZero, ErrnoMustNotBeChecked)
             .Case(ReturnsMinusOne, ErrnoNEZeroIrrelevant)
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(0)))
             .ArgConstraint(NotNull(ArgNo(1)))
+            .ArgConstraint(ValidFileDescriptorOrAtFdcwd(ArgNo(2)))
             .ArgConstraint(NotNull(ArgNo(3))));
 
     // char *realpath(const char *restrict file_name,
@@ -3326,7 +3362,7 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
   }
 
   // Functions for testing.
-  if (ChecksEnabled[CK_StdCLibraryFunctionsTesterChecker]) {
+  if (AddTestFunctions) {
     const RangeInt IntMin = BVF.getMinValue(IntTy).getLimitedValue();
 
     addToFunctionSummaryMap(
@@ -3550,12 +3586,11 @@ void StdLibraryFunctionsChecker::initFunctionSummaries(
                    ReturnValueCondition(WithinRange, SingleValue(4))},
                   ErrnoIrrelevant));
   }
-
-  SummariesInitialized = true;
 }
 
 void ento::registerStdCLibraryFunctionsChecker(CheckerManager &mgr) {
   auto *Checker = mgr.registerChecker<StdLibraryFunctionsChecker>();
+  Checker->CheckName = mgr.getCurrentCheckerName();
   const AnalyzerOptions &Opts = mgr.getAnalyzerOptions();
   Checker->DisplayLoadedSummaries =
       Opts.getCheckerBooleanOption(Checker, "DisplayLoadedSummaries");
@@ -3569,16 +3604,12 @@ bool ento::shouldRegisterStdCLibraryFunctionsChecker(
   return true;
 }
 
-#define REGISTER_CHECKER(name)                                                 \
-  void ento::register##name(CheckerManager &mgr) {                             \
-    StdLibraryFunctionsChecker *checker =                                      \
-        mgr.getChecker<StdLibraryFunctionsChecker>();                          \
-    checker->ChecksEnabled[StdLibraryFunctionsChecker::CK_##name] = true;      \
-    checker->CheckNames[StdLibraryFunctionsChecker::CK_##name] =               \
-        mgr.getCurrentCheckerName();                                           \
-  }                                                                            \
-                                                                               \
-  bool ento::shouldRegister##name(const CheckerManager &mgr) { return true; }
+void ento::registerStdCLibraryFunctionsTesterChecker(CheckerManager &mgr) {
+  auto *Checker = mgr.getChecker<StdLibraryFunctionsChecker>();
+  Checker->AddTestFunctions = true;
+}
 
-REGISTER_CHECKER(StdCLibraryFunctionArgsChecker)
-REGISTER_CHECKER(StdCLibraryFunctionsTesterChecker)
+bool ento::shouldRegisterStdCLibraryFunctionsTesterChecker(
+    const CheckerManager &mgr) {
+  return true;
+}

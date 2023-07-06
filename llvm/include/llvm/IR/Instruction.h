@@ -350,6 +350,9 @@ public:
   /// Sets the AA metadata on this instruction from the AAMDNodes structure.
   void setAAMetadata(const AAMDNodes &N);
 
+  /// Sets the nosanitize metadata on this instruction.
+  void setNoSanitizeMetadata();
+
   /// Retrieve total raw weight values of a branch.
   /// Returns true on success with profile total weights filled in.
   /// Returns false if no metadata was found.
@@ -521,7 +524,7 @@ public:
   ///     applications, thus the N-way merging should be in code path.
   /// The DebugLoc attached to this instruction will be overwritten by the
   /// merged DebugLoc.
-  void applyMergedLocation(const DILocation *LocA, const DILocation *LocB);
+  void applyMergedLocation(DILocation *LocA, DILocation *LocB);
 
   /// Updates the debug location given that the instruction has been hoisted
   /// from a block to a predecessor of that block.
@@ -643,6 +646,9 @@ public:
 
   /// Return true if this instruction has a volatile memory access.
   bool isVolatile() const LLVM_READONLY;
+
+  /// Return the type this instruction accesses in memory, if any.
+  Type *getAccessType() const LLVM_READONLY;
 
   /// Return true if this instruction may throw an exception.
   ///

@@ -239,7 +239,7 @@ the configuration (without a prefix: ``Auto``).
       )
 
 
-    .. warning:: 
+    .. warning::
 
      Note: This currently only applies to parentheses.
 
@@ -2453,7 +2453,7 @@ the configuration (without a prefix: ``Auto``).
   * ``BBCDS_Allowed`` (in configuration: ``Allowed``)
     Breaking between template declaration and ``concept`` is allowed. The
     actual behavior depends on the content and line breaking rules and
-    penalities.
+    penalties.
 
   * ``BBCDS_Always`` (in configuration: ``Always``)
     Always break before ``concept``, putting it in the line after the
@@ -3318,7 +3318,7 @@ the configuration (without a prefix: ``Auto``).
   and ``while``) in C++ unless the control statements are inside macro
   definitions or the braces would enclose preprocessor directives.
 
-  .. warning:: 
+  .. warning::
 
    Setting this option to `true` could lead to incorrect code formatting due
    to clang-format's lack of complete semantic information. As such, extra
@@ -3554,6 +3554,11 @@ the configuration (without a prefix: ``Auto``).
 
      false:
      import {VeryLongImportsAreAnnoying, VeryLongImportsAreAnnoying, VeryLongImportsAreAnnoying,} from "some/module.js"
+
+.. _KeepEmptyLinesAtEOF:
+
+**KeepEmptyLinesAtEOF** (``Boolean``) :versionbadge:`clang-format 17` :ref:`¶ <KeepEmptyLinesAtEOF>`
+  Keep empty lines (up to ``MaxEmptyLinesToKeep``) at end of file.
 
 .. _KeepEmptyLinesAtTheStartOfBlocks:
 
@@ -4104,7 +4109,7 @@ the configuration (without a prefix: ``Auto``).
 **QualifierAlignment** (``QualifierAlignmentStyle``) :versionbadge:`clang-format 14` :ref:`¶ <QualifierAlignment>`
   Different ways to arrange specifiers and qualifiers (e.g. const/volatile).
 
-  .. warning:: 
+  .. warning::
 
    Setting ``QualifierAlignment``  to something other than `Leave`, COULD
    lead to incorrect code formatting due to incorrect decisions made due to
@@ -4280,11 +4285,11 @@ the configuration (without a prefix: ``Auto``).
   Remove optional braces of control statements (``if``, ``else``, ``for``,
   and ``while``) in C++ according to the LLVM coding style.
 
-  .. warning:: 
+  .. warning::
 
    This option will be renamed and expanded to support other styles.
 
-  .. warning:: 
+  .. warning::
 
    Setting this option to `true` could lead to incorrect code formatting due
    to clang-format's lack of complete semantic information. As such, extra
@@ -4337,7 +4342,7 @@ the configuration (without a prefix: ``Auto``).
 **RemoveSemicolon** (``Boolean``) :versionbadge:`clang-format 16` :ref:`¶ <RemoveSemicolon>`
   Remove semicolons after the closing brace of a non-empty function.
 
-  .. warning:: 
+  .. warning::
 
    Setting this option to `true` could lead to incorrect code formatting due
    to clang-format's lack of complete semantic information. As such, extra
@@ -4561,11 +4566,6 @@ the configuration (without a prefix: ``Auto``).
 
 **SortIncludes** (``SortIncludesOptions``) :versionbadge:`clang-format 3.8` :ref:`¶ <SortIncludes>`
   Controls if and how clang-format will sort ``#includes``.
-  If ``Never``, includes are never sorted.
-  If ``CaseInsensitive``, includes are sorted in an ASCIIbetical or case
-  insensitive fashion.
-  If ``CaseSensitive``, includes are sorted in an alphabetical or case
-  sensitive fashion.
 
   Possible values:
 
@@ -5069,9 +5069,12 @@ the configuration (without a prefix: ``Auto``).
   The number of spaces before trailing line comments
   (``//`` - comments).
 
-  This does not affect trailing block comments (``/*`` - comments) as
-  those commonly have different usage patterns and a number of special
-  cases.
+  This does not affect trailing block comments (``/*`` - comments) as those
+  commonly have different usage patterns and a number of special cases.  In
+  the case of Verilog, it doesn't affect a comment right after the opening
+  parenthesis in the port or parameter list in a module header, because it
+  is probably for the port on the following line instead of the parenthesis
+  it follows.
 
   .. code-block:: c++
 

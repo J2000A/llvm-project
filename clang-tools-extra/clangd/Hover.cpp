@@ -18,6 +18,7 @@
 #include "Selection.h"
 #include "SourceCode.h"
 #include "clang-include-cleaner/Analysis.h"
+#include "clang-include-cleaner/IncludeSpeller.h"
 #include "clang-include-cleaner/Types.h"
 #include "index/SymbolCollector.h"
 #include "support/Logger.h"
@@ -468,9 +469,9 @@ struct PrintExprResult {
   std::optional<std::string> PrintedValue;
   /// The Expr object that represents the closest evaluable
   /// expression.
-  const clang::Expr *Expr;
+  const clang::Expr *TheExpr;
   /// The node of selection tree where the traversal stops.
-  const SelectionTree::Node *Node;
+  const SelectionTree::Node *TheNode;
 };
 
 // Seek the closest evaluable expression along the ancestors of node N
@@ -658,7 +659,7 @@ HoverInfo getHoverContents(const NamedDecl *D, const PrintingPolicy &PP,
     HI.Type = printType(TAT->getTemplatedDecl()->getUnderlyingType(), Ctx, PP);
 
   // Fill in value with evaluated initializer if possible.
-  if (const auto *Var = dyn_cast<VarDecl>(D)) {
+  if (const auto *Var = dyn_cast<VarDecl>(D); Var && !Var->isInvalidDecl()) {
     if (const Expr *Init = Var->getInit())
       HI.Value = printExprValue(Init, Ctx);
   } else if (const auto *ECD = dyn_cast<EnumConstantDecl>(D)) {
@@ -731,12 +732,12 @@ HoverInfo evaluateMacroExpansion(unsigned int SpellingBeginOffset,
   // Attempt to evaluate it from Expr first.
   auto ExprResult = printExprValue(StartNode, Context);
   HI.Value = std::move(ExprResult.PrintedValue);
-  if (auto *E = ExprResult.Expr)
+  if (auto *E = ExprResult.TheExpr)
     HI.Type = printType(E->getType(), Context, PP);
 
   // If failed, extract the type from Decl if possible.
-  if (!HI.Value && !HI.Type && ExprResult.Node)
-    if (auto *VD = ExprResult.Node->ASTNode.get<VarDecl>())
+  if (!HI.Value && !HI.Type && ExprResult.TheNode)
+    if (auto *VD = ExprResult.TheNode->ASTNode.get<VarDecl>())
       HI.Type = printType(VD->getType(), Context, PP);
 
   return HI;
@@ -866,7 +867,7 @@ HoverInfo getStringLiteralContents(const StringLiteral *SL,
   HoverInfo HI;
 
   HI.Name = "string-literal";
-  HI.Size = (SL->getLength() + 1) * SL->getCharByteWidth();
+  HI.Size = (SL->getLength() + 1) * SL->getCharByteWidth() * 8;
   HI.Type = SL->getType().getAsString(PP).c_str();
 
   return HI;
@@ -1000,7 +1001,7 @@ void addLayoutInfo(const NamedDecl &ND, HoverInfo &HI) {
   const auto &Ctx = ND.getASTContext();
   if (auto *RD = llvm::dyn_cast<RecordDecl>(&ND)) {
     if (auto Size = Ctx.getTypeSizeInCharsIfKnown(RD->getTypeForDecl()))
-      HI.Size = Size->getQuantity();
+      HI.Size = Size->getQuantity() * 8;
     return;
   }
 
@@ -1008,25 +1009,26 @@ void addLayoutInfo(const NamedDecl &ND, HoverInfo &HI) {
     const auto *Record = FD->getParent();
     if (Record)
       Record = Record->getDefinition();
-    if (Record && !Record->isInvalidDecl() && !Record->isDependentType() &&
-        !FD->isBitField()) {
+    if (Record && !Record->isInvalidDecl() && !Record->isDependentType()) {
       const ASTRecordLayout &Layout = Ctx.getASTRecordLayout(Record);
-      HI.Offset = Layout.getFieldOffset(FD->getFieldIndex()) / 8;
-      if (auto Size = Ctx.getTypeSizeInCharsIfKnown(FD->getType())) {
-        HI.Size = FD->isZeroSize(Ctx) ? 0 : Size->getQuantity();
+      HI.Offset = Layout.getFieldOffset(FD->getFieldIndex());
+      if (FD->isBitField())
+        HI.Size = FD->getBitWidthValue(Ctx);
+      else if (auto Size = Ctx.getTypeSizeInCharsIfKnown(FD->getType()))
+        HI.Size = FD->isZeroSize(Ctx) ? 0 : Size->getQuantity() * 8;
+      if (HI.Size) {
         unsigned EndOfField = *HI.Offset + *HI.Size;
 
         // Calculate padding following the field.
         if (!Record->isUnion() &&
             FD->getFieldIndex() + 1 < Layout.getFieldCount()) {
           // Measure padding up to the next class field.
-          unsigned NextOffset =
-              Layout.getFieldOffset(FD->getFieldIndex() + 1) / 8;
+          unsigned NextOffset = Layout.getFieldOffset(FD->getFieldIndex() + 1);
           if (NextOffset >= EndOfField) // next field could be a bitfield!
             HI.Padding = NextOffset - EndOfField;
         } else {
           // Measure padding up to the end of the object.
-          HI.Padding = Layout.getSize().getQuantity() - EndOfField;
+          HI.Padding = Layout.getSize().getQuantity() * 8 - EndOfField;
         }
       }
       // Offset in a union is always zero, so not really useful to report.
@@ -1222,7 +1224,9 @@ void maybeAddSymbolProviders(ParsedAST &AST, HoverInfo &HI,
     // on local variables, etc.
     return;
 
-  HI.Provider = spellHeader(AST, SM.getFileEntryForID(SM.getMainFileID()), H);
+  HI.Provider = include_cleaner::spellHeader(
+      {H, AST.getPreprocessor().getHeaderSearchInfo(),
+       SM.getFileEntryForID(SM.getMainFileID())});
 }
 
 // FIXME: similar functions are present in FindHeaders.cpp (symbolName)
@@ -1268,6 +1272,9 @@ void maybeAddUsedSymbols(ParsedAST &AST, HoverInfo &HI, const Inclusion &Inc) {
   for (const auto &UsedSymbolDecl : UsedSymbols)
     HI.UsedSymbolNames.push_back(getSymbolName(UsedSymbolDecl));
   llvm::sort(HI.UsedSymbolNames);
+  HI.UsedSymbolNames.erase(
+      std::unique(HI.UsedSymbolNames.begin(), HI.UsedSymbolNames.end()),
+      HI.UsedSymbolNames.end());
 }
 
 } // namespace
@@ -1367,7 +1374,10 @@ std::optional<HoverInfo> getHover(ParsedAST &AST, Position Pos,
         if (!HI->Value)
           HI->Value = printExprValue(N, AST.getASTContext()).PrintedValue;
         maybeAddCalleeArgInfo(N, *HI, PP);
-        maybeAddSymbolProviders(AST, *HI, include_cleaner::Symbol{*DeclToUse});
+
+        if (!isa<NamespaceDecl>(DeclToUse))
+          maybeAddSymbolProviders(AST, *HI,
+                                  include_cleaner::Symbol{*DeclToUse});
       } else if (const Expr *E = N->ASTNode.get<Expr>()) {
         HoverCountMetric.record(1, "expr");
         HI = getHoverContents(N, E, AST, PP, Index);
@@ -1396,6 +1406,24 @@ std::optional<HoverInfo> getHover(ParsedAST &AST, Position Pos,
   HI->SymRange = halfOpenToRange(SM, HighlightRange);
 
   return HI;
+}
+
+// Sizes (and padding) are shown in bytes if possible, otherwise in bits.
+static std::string formatSize(uint64_t SizeInBits) {
+  uint64_t Value = SizeInBits % 8 == 0 ? SizeInBits / 8 : SizeInBits;
+  const char *Unit = Value != 0 && Value == SizeInBits ? "bit" : "byte";
+  return llvm::formatv("{0} {1}{2}", Value, Unit, Value == 1 ? "" : "s").str();
+}
+
+// Offsets are shown in bytes + bits, so offsets of different fields
+// can always be easily compared.
+static std::string formatOffset(uint64_t OffsetInBits) {
+  const auto Bytes = OffsetInBits / 8;
+  const auto Bits = OffsetInBits % 8;
+  auto Offset = formatSize(Bytes * 8);
+  if (Bits != 0)
+    Offset += " and " + formatSize(Bits);
+  return Offset;
 }
 
 markup::Document HoverInfo::present() const {
@@ -1461,14 +1489,13 @@ markup::Document HoverInfo::present() const {
   }
 
   if (Offset)
-    Output.addParagraph().appendText(
-        llvm::formatv("Offset: {0} byte{1}", *Offset, *Offset == 1 ? "" : "s")
-            .str());
+    Output.addParagraph().appendText("Offset: " + formatOffset(*Offset));
   if (Size) {
-    auto &P = Output.addParagraph().appendText(
-        llvm::formatv("Size: {0} byte{1}", *Size, *Size == 1 ? "" : "s").str());
-    if (Padding && *Padding != 0)
-      P.appendText(llvm::formatv(" (+{0} padding)", *Padding).str());
+    auto &P = Output.addParagraph().appendText("Size: " + formatSize(*Size));
+    if (Padding && *Padding != 0) {
+      P.appendText(
+          llvm::formatv(" (+{0} padding)", formatSize(*Padding)).str());
+    }
   }
 
   if (CalleeArgInfo) {
@@ -1529,16 +1556,11 @@ markup::Document HoverInfo::present() const {
     P.appendText("provides ");
 
     const std::vector<std::string>::size_type SymbolNamesLimit = 5;
-    auto Front =
-        llvm::ArrayRef(UsedSymbolNames)
-            .take_front(std::min(UsedSymbolNames.size(), SymbolNamesLimit));
+    auto Front = llvm::ArrayRef(UsedSymbolNames).take_front(SymbolNamesLimit);
 
-    for (const auto &Sym : Front) {
-      P.appendCode(Sym);
-      if (Sym != Front.back())
-        P.appendText(", ");
-    }
-
+    llvm::interleave(
+        Front, [&](llvm::StringRef Sym) { P.appendCode(Sym); },
+        [&] { P.appendText(", "); });
     if (UsedSymbolNames.size() > Front.size()) {
       P.appendText(" and ");
       P.appendText(std::to_string(UsedSymbolNames.size() - Front.size()));

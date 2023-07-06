@@ -9,9 +9,12 @@
 #ifndef LLVM_LIBC_UTILS_GPU_LOADER_LOADER_H
 #define LLVM_LIBC_UTILS_GPU_LOADER_LOADER_H
 
+#include "utils/gpu/server/rpc_server.h"
+#include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
-#include <stddef.h>
 
 /// Generic launch parameters for configuration the number of blocks / threads.
 struct LaunchParameters {
@@ -28,9 +31,7 @@ struct begin_args_t {
   int argc;
   void *argv;
   void *envp;
-  void *inbox;
-  void *outbox;
-  void *buffer;
+  void *rpc_shared_buffer;
 };
 
 /// The arguments to the '_start' kernel.
@@ -93,5 +94,14 @@ void *copy_environment(char **envp, Allocator alloc) {
 
   return copy_argument_vector(envc, envp, alloc);
 };
+
+inline void handle_error(const char *msg) {
+  fprintf(stderr, "%s\n", msg);
+  exit(EXIT_FAILURE);
+}
+
+inline void handle_error(rpc_status_t) {
+  handle_error("Failure in the RPC server\n");
+}
 
 #endif

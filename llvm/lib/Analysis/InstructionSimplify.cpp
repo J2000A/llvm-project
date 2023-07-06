@@ -218,12 +218,6 @@ static bool valueDominatesPHI(Value *V, PHINode *P, const DominatorTree *DT) {
     // Arguments and constants dominate all instructions.
     return true;
 
-  // If we are processing instructions (and/or basic blocks) that have not been
-  // fully added to a function, the parent nodes may still be null. Simply
-  // return the conservative answer in these cases.
-  if (!I->getParent() || !P->getParent() || !I->getFunction())
-    return false;
-
   // If we have a DominatorTree then do a precise test.
   if (DT)
     return DT->dominates(I, P);
@@ -1130,12 +1124,21 @@ static Value *simplifyDivRem(Instruction::BinaryOps Opcode, Value *Op0,
   if (Op0 == Op1)
     return IsDiv ? ConstantInt::get(Ty, 1) : Constant::getNullValue(Ty);
 
+
+  KnownBits Known = computeKnownBits(Op1, Q.DL, 0, Q.AC, Q.CxtI, Q.DT);
+  // X / 0 -> poison
+  // X % 0 -> poison
+  // If the divisor is known to be zero, just return poison. This can happen in
+  // some cases where its provable indirectly the denominator is zero but it's
+  // not trivially simplifiable (i.e known zero through a phi node).
+  if (Known.isZero())
+    return PoisonValue::get(Ty);
+
   // X / 1 -> X
   // X % 1 -> 0
   // If the divisor can only be zero or one, we can't have division-by-zero
   // or remainder-by-zero, so assume the divisor is 1.
   //   e.g. 1, zext (i8 X), sdiv X (Y and 1)
-  KnownBits Known = computeKnownBits(Op1, Q.DL, 0, Q.AC, Q.CxtI, Q.DT);
   if (Known.countMinLeadingZeros() == Known.getBitWidth() - 1)
     return IsDiv ? Op0 : Constant::getNullValue(Ty);
 
@@ -1940,12 +1943,15 @@ static Value *simplifyOrOfICmps(ICmpInst *Op0, ICmpInst *Op1,
   return nullptr;
 }
 
-static Value *simplifyAndOrOfFCmps(const TargetLibraryInfo *TLI, FCmpInst *LHS,
+static Value *simplifyAndOrOfFCmps(const SimplifyQuery &Q, FCmpInst *LHS,
                                    FCmpInst *RHS, bool IsAnd) {
   Value *LHS0 = LHS->getOperand(0), *LHS1 = LHS->getOperand(1);
   Value *RHS0 = RHS->getOperand(0), *RHS1 = RHS->getOperand(1);
   if (LHS0->getType() != RHS0->getType())
     return nullptr;
+
+  const DataLayout &DL = Q.DL;
+  const TargetLibraryInfo *TLI = Q.TLI;
 
   FCmpInst::Predicate PredL = LHS->getPredicate(), PredR = RHS->getPredicate();
   if ((PredL == FCmpInst::FCMP_ORD && PredR == FCmpInst::FCMP_ORD && IsAnd) ||
@@ -1958,8 +1964,10 @@ static Value *simplifyAndOrOfFCmps(const TargetLibraryInfo *TLI, FCmpInst *LHS,
     // (fcmp uno NNAN, X) | (fcmp uno Y, X) --> fcmp uno Y, X
     // (fcmp uno X, NNAN) | (fcmp uno X, Y) --> fcmp uno X, Y
     // (fcmp uno X, NNAN) | (fcmp uno Y, X) --> fcmp uno Y, X
-    if (((LHS1 == RHS0 || LHS1 == RHS1) && isKnownNeverNaN(LHS0, TLI)) ||
-        ((LHS0 == RHS0 || LHS0 == RHS1) && isKnownNeverNaN(LHS1, TLI)))
+    if (((LHS1 == RHS0 || LHS1 == RHS1) &&
+         isKnownNeverNaN(LHS0, DL, TLI, 0, Q.AC, Q.CxtI, Q.DT)) ||
+        ((LHS0 == RHS0 || LHS0 == RHS1) &&
+         isKnownNeverNaN(LHS1, DL, TLI, 0, Q.AC, Q.CxtI, Q.DT)))
       return RHS;
 
     // (fcmp ord X, Y) & (fcmp ord NNAN, X) --> fcmp ord X, Y
@@ -1970,8 +1978,10 @@ static Value *simplifyAndOrOfFCmps(const TargetLibraryInfo *TLI, FCmpInst *LHS,
     // (fcmp uno Y, X) | (fcmp uno NNAN, X) --> fcmp uno Y, X
     // (fcmp uno X, Y) | (fcmp uno X, NNAN) --> fcmp uno X, Y
     // (fcmp uno Y, X) | (fcmp uno X, NNAN) --> fcmp uno Y, X
-    if (((RHS1 == LHS0 || RHS1 == LHS1) && isKnownNeverNaN(RHS0, TLI)) ||
-        ((RHS0 == LHS0 || RHS0 == LHS1) && isKnownNeverNaN(RHS1, TLI)))
+    if (((RHS1 == LHS0 || RHS1 == LHS1) &&
+         isKnownNeverNaN(RHS0, DL, TLI, 0, Q.AC, Q.CxtI, Q.DT)) ||
+        ((RHS0 == LHS0 || RHS0 == LHS1) &&
+         isKnownNeverNaN(RHS1, DL, TLI, 0, Q.AC, Q.CxtI, Q.DT)))
       return LHS;
   }
 
@@ -1999,7 +2009,7 @@ static Value *simplifyAndOrOfCmps(const SimplifyQuery &Q, Value *Op0,
   auto *FCmp0 = dyn_cast<FCmpInst>(Op0);
   auto *FCmp1 = dyn_cast<FCmpInst>(Op1);
   if (FCmp0 && FCmp1)
-    V = simplifyAndOrOfFCmps(Q.TLI, FCmp0, FCmp1, IsAnd);
+    V = simplifyAndOrOfFCmps(Q, FCmp0, FCmp1, IsAnd);
 
   if (!V)
     return nullptr;
@@ -2622,7 +2632,7 @@ static bool isAllocDisjoint(const Value *V) {
   // that might be resolve lazily to symbols in another dynamically-loaded
   // library (and, thus, could be malloc'ed by the implementation).
   if (const AllocaInst *AI = dyn_cast<AllocaInst>(V))
-    return AI->getParent() && AI->getFunction() && AI->isStaticAlloca();
+    return AI->isStaticAlloca();
   if (const GlobalValue *GV = dyn_cast<GlobalValue>(V))
     return (GV->hasLocalLinkage() || GV->hasHiddenVisibility() ||
             GV->hasProtectedVisibility() || GV->hasGlobalUnnamedAddr()) &&
@@ -2707,15 +2717,12 @@ static bool haveNonOverlappingStorage(const Value *V1, const Value *V2) {
 // this optimization.
 static Constant *computePointerICmp(CmpInst::Predicate Pred, Value *LHS,
                                     Value *RHS, const SimplifyQuery &Q) {
+  assert(LHS->getType() == RHS->getType() && "Must have same types");
   const DataLayout &DL = Q.DL;
   const TargetLibraryInfo *TLI = Q.TLI;
   const DominatorTree *DT = Q.DT;
   const Instruction *CxtI = Q.CxtI;
   const InstrInfoQuery &IIQ = Q.IIQ;
-
-  // First, skip past any trivial no-ops.
-  LHS = LHS->stripPointerCasts();
-  RHS = RHS->stripPointerCasts();
 
   // A non-null pointer is not equal to a null pointer.
   if (isa<ConstantPointerNull>(RHS) && ICmpInst::isEquality(Pred) &&
@@ -2755,8 +2762,10 @@ static Constant *computePointerICmp(CmpInst::Predicate Pred, Value *LHS,
   // Even if an non-inbounds GEP occurs along the path we can still optimize
   // equality comparisons concerning the result.
   bool AllowNonInbounds = ICmpInst::isEquality(Pred);
-  APInt LHSOffset = stripAndComputeConstantOffsets(DL, LHS, AllowNonInbounds);
-  APInt RHSOffset = stripAndComputeConstantOffsets(DL, RHS, AllowNonInbounds);
+  unsigned IndexSize = DL.getIndexTypeSizeInBits(LHS->getType());
+  APInt LHSOffset(IndexSize, 0), RHSOffset(IndexSize, 0);
+  LHS = LHS->stripAndAccumulateConstantOffsets(DL, LHSOffset, AllowNonInbounds);
+  RHS = RHS->stripAndAccumulateConstantOffsets(DL, RHSOffset, AllowNonInbounds);
 
   // If LHS and RHS are related via constant offsets to the same base
   // value, we can replace it with an icmp which just compares the offsets.
@@ -2784,11 +2793,11 @@ static Constant *computePointerICmp(CmpInst::Predicate Pred, Value *LHS,
       }(LHS);
       Opts.NullIsUnknownSize = F ? NullPointerIsDefined(F) : true;
       if (getObjectSize(LHS, LHSSize, DL, TLI, Opts) &&
-          getObjectSize(RHS, RHSSize, DL, TLI, Opts) &&
-          !LHSOffset.isNegative() && !RHSOffset.isNegative() &&
-          LHSOffset.ult(LHSSize) && RHSOffset.ult(RHSSize)) {
-        return ConstantInt::get(getCompareTy(LHS),
-                                !CmpInst::isTrueWhenEqual(Pred));
+          getObjectSize(RHS, RHSSize, DL, TLI, Opts)) {
+        APInt Dist = LHSOffset - RHSOffset;
+        if (Dist.isNonNegative() ? Dist.ult(LHSSize) : (-Dist).ult(RHSSize))
+          return ConstantInt::get(getCompareTy(LHS),
+                                  !CmpInst::isTrueWhenEqual(Pred));
       }
     }
 
@@ -3653,7 +3662,7 @@ static Value *simplifyICmpWithDominatingAssume(CmpInst::Predicate Predicate,
                                                Value *LHS, Value *RHS,
                                                const SimplifyQuery &Q) {
   // Gracefully handle instructions that have not been inserted yet.
-  if (!Q.AC || !Q.CxtI || !Q.CxtI->getParent())
+  if (!Q.AC || !Q.CxtI)
     return nullptr;
 
   for (Value *AssumeBaseOp : {LHS, RHS}) {
@@ -3670,6 +3679,36 @@ static Value *simplifyICmpWithDominatingAssume(CmpInst::Predicate Predicate,
   }
 
   return nullptr;
+}
+
+static Value *simplifyICmpWithIntrinsicOnLHS(CmpInst::Predicate Pred,
+                                             Value *LHS, Value *RHS) {
+  auto *II = dyn_cast<IntrinsicInst>(LHS);
+  if (!II)
+    return nullptr;
+
+  switch (II->getIntrinsicID()) {
+  case Intrinsic::uadd_sat:
+    // uadd.sat(X, Y) uge X, uadd.sat(X, Y) uge Y
+    if (II->getArgOperand(0) == RHS || II->getArgOperand(1) == RHS) {
+      if (Pred == ICmpInst::ICMP_UGE)
+        return ConstantInt::getTrue(getCompareTy(II));
+      if (Pred == ICmpInst::ICMP_ULT)
+        return ConstantInt::getFalse(getCompareTy(II));
+    }
+    return nullptr;
+  case Intrinsic::usub_sat:
+    // usub.sat(X, Y) ule X
+    if (II->getArgOperand(0) == RHS) {
+      if (Pred == ICmpInst::ICMP_ULE)
+        return ConstantInt::getTrue(getCompareTy(II));
+      if (Pred == ICmpInst::ICMP_UGT)
+        return ConstantInt::getFalse(getCompareTy(II));
+    }
+    return nullptr;
+  default:
+    return nullptr;
+  }
 }
 
 /// Given operands for an ICmpInst, see if we can fold the result.
@@ -3936,6 +3975,12 @@ static Value *simplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
   if (Value *V = simplifyICmpWithMinMax(Pred, LHS, RHS, Q, MaxRecurse))
     return V;
 
+  if (Value *V = simplifyICmpWithIntrinsicOnLHS(Pred, LHS, RHS))
+    return V;
+  if (Value *V = simplifyICmpWithIntrinsicOnLHS(
+          ICmpInst::getSwappedPredicate(Pred), RHS, LHS))
+    return V;
+
   if (Value *V = simplifyICmpWithDominatingAssume(Pred, LHS, RHS, Q))
     return V;
 
@@ -3950,10 +3995,9 @@ static Value *simplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
       return C;
   if (auto *CLHS = dyn_cast<PtrToIntOperator>(LHS))
     if (auto *CRHS = dyn_cast<PtrToIntOperator>(RHS))
-      if (Q.DL.getTypeSizeInBits(CLHS->getPointerOperandType()) ==
-              Q.DL.getTypeSizeInBits(CLHS->getType()) &&
-          Q.DL.getTypeSizeInBits(CRHS->getPointerOperandType()) ==
-              Q.DL.getTypeSizeInBits(CRHS->getType()))
+      if (CLHS->getPointerOperandType() == CRHS->getPointerOperandType() &&
+          Q.DL.getTypeSizeInBits(CLHS->getPointerOperandType()) ==
+              Q.DL.getTypeSizeInBits(CLHS->getType()))
         if (auto *C = computePointerICmp(Pred, CLHS->getPointerOperand(),
                                          CRHS->getPointerOperand(), Q))
           return C;
@@ -4006,7 +4050,8 @@ static Value *simplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
   // Fold (un)ordered comparison if we can determine there are no NaNs.
   if (Pred == FCmpInst::FCMP_UNO || Pred == FCmpInst::FCMP_ORD)
     if (FMF.noNaNs() ||
-        (isKnownNeverNaN(LHS, Q.TLI) && isKnownNeverNaN(RHS, Q.TLI)))
+        (isKnownNeverNaN(LHS, Q.DL, Q.TLI, 0, Q.AC, Q.CxtI, Q.DT) &&
+         isKnownNeverNaN(RHS, Q.DL, Q.TLI, 0, Q.AC, Q.CxtI, Q.DT)))
       return ConstantInt::get(RetTy, Pred == FCmpInst::FCMP_ORD);
 
   // NaN is unordered; NaN is not ordered.
@@ -4068,18 +4113,20 @@ static Value *simplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
       }
 
       // LHS == Inf
-      if (Pred == FCmpInst::FCMP_OEQ && isKnownNeverInfinity(LHS, Q.TLI))
+      if (Pred == FCmpInst::FCMP_OEQ &&
+          isKnownNeverInfinity(LHS, Q.DL, Q.TLI, 0, Q.AC, Q.CxtI, Q.DT))
         return getFalse(RetTy);
       // LHS != Inf
-      if (Pred == FCmpInst::FCMP_UNE && isKnownNeverInfinity(LHS, Q.TLI))
+      if (Pred == FCmpInst::FCMP_UNE &&
+          isKnownNeverInfinity(LHS, Q.DL, Q.TLI, 0, Q.AC, Q.CxtI, Q.DT))
         return getTrue(RetTy);
       // LHS == Inf || LHS == NaN
-      if (Pred == FCmpInst::FCMP_UEQ && isKnownNeverInfinity(LHS, Q.TLI) &&
-          isKnownNeverNaN(LHS, Q.TLI))
+      if (Pred == FCmpInst::FCMP_UEQ &&
+          isKnownNeverInfOrNaN(LHS, Q.DL, Q.TLI, 0, Q.AC, Q.CxtI, Q.DT))
         return getFalse(RetTy);
       // LHS != Inf && LHS != NaN
-      if (Pred == FCmpInst::FCMP_ONE && isKnownNeverInfinity(LHS, Q.TLI) &&
-          isKnownNeverNaN(LHS, Q.TLI))
+      if (Pred == FCmpInst::FCMP_ONE &&
+          isKnownNeverInfOrNaN(LHS, Q.DL, Q.TLI, 0, Q.AC, Q.CxtI, Q.DT))
         return getTrue(RetTy);
     }
     if (C->isNegative() && !C->isNegZero()) {
@@ -4091,14 +4138,15 @@ static Value *simplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
       case FCmpInst::FCMP_UGT:
       case FCmpInst::FCMP_UNE:
         // (X >= 0) implies (X > C) when (C < 0)
-        if (CannotBeOrderedLessThanZero(LHS, Q.TLI))
+        if (CannotBeOrderedLessThanZero(LHS, Q.DL, Q.TLI))
           return getTrue(RetTy);
         break;
       case FCmpInst::FCMP_OEQ:
       case FCmpInst::FCMP_OLE:
       case FCmpInst::FCMP_OLT:
         // (X >= 0) implies !(X < C) when (C < 0)
-        if (CannotBeOrderedLessThanZero(LHS, Q.TLI))
+        if (cannotBeOrderedLessThanZero(LHS, Q.DL, Q.TLI, 0, Q.AC, Q.CxtI,
+                                        Q.DT))
           return getFalse(RetTy);
         break;
       default:
@@ -4158,15 +4206,16 @@ static Value *simplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
     case FCmpInst::FCMP_ULT:
       // Positive or zero X >= 0.0 --> true
       // Positive or zero X <  0.0 --> false
-      if ((FMF.noNaNs() || isKnownNeverNaN(LHS, Q.TLI)) &&
-          CannotBeOrderedLessThanZero(LHS, Q.TLI))
+      if ((FMF.noNaNs() ||
+           isKnownNeverNaN(LHS, Q.DL, Q.TLI, 0, Q.AC, Q.CxtI, Q.DT)) &&
+          CannotBeOrderedLessThanZero(LHS, Q.DL, Q.TLI))
         return Pred == FCmpInst::FCMP_OGE ? getTrue(RetTy) : getFalse(RetTy);
       break;
     case FCmpInst::FCMP_UGE:
     case FCmpInst::FCMP_OLT:
       // Positive or zero or nan X >= 0.0 --> true
       // Positive or zero or nan X <  0.0 --> false
-      if (CannotBeOrderedLessThanZero(LHS, Q.TLI))
+      if (CannotBeOrderedLessThanZero(LHS, Q.DL, Q.TLI))
         return Pred == FCmpInst::FCMP_UGE ? getTrue(RetTy) : getFalse(RetTy);
       break;
     default:
@@ -4246,6 +4295,15 @@ static Value *simplifyWithOpReplaced(Value *V, Value *Op, Value *RepOp,
       if ((Opcode == Instruction::And || Opcode == Instruction::Or) &&
           NewOps[0] == NewOps[1])
         return NewOps[0];
+
+      // x - x -> 0, x ^ x -> 0. This is non-refining, because x is non-poison
+      // by assumption and this case never wraps, so nowrap flags can be
+      // ignored.
+      if ((Opcode == Instruction::Sub || Opcode == Instruction::Xor) &&
+          NewOps[0] == NewOps[1]) {
+        assert(NewOps[0] == RepOp && "Precondition for non-poison assumption");
+        return Constant::getNullValue(I->getType());
+      }
 
       // If we are substituting an absorber constant into a binop and extra
       // poison can't leak if we remove the select -- because both operands of
@@ -4617,7 +4675,8 @@ static Value *simplifySelectInst(Value *Cond, Value *TrueVal, Value *FalseVal,
   if (auto *CondC = dyn_cast<Constant>(Cond)) {
     if (auto *TrueC = dyn_cast<Constant>(TrueVal))
       if (auto *FalseC = dyn_cast<Constant>(FalseVal))
-        return ConstantFoldSelectInstruction(CondC, TrueC, FalseC);
+        if (Constant *C = ConstantFoldSelectInstruction(CondC, TrueC, FalseC))
+          return C;
 
     // select poison, X, Y -> poison
     if (isa<PoisonValue>(CondC))
@@ -5407,6 +5466,15 @@ static Constant *propagateNaN(Constant *In) {
   if (!In->isNaN())
     return ConstantFP::getNaN(Ty);
 
+  // If we known this is a NaN, and it's scalable vector, we must have a splat
+  // on our hands. Grab that before splatting a QNaN constant.
+  if (isa<ScalableVectorType>(Ty)) {
+    auto *Splat = In->getSplatValue();
+    assert(Splat && Splat->isNaN() &&
+           "Found a scalable-vector NaN but not a splat");
+    In = Splat;
+  }
+
   // Propagate an existing QNaN constant. If it is an SNaN, make it quiet, but
   // preserve the sign/payload.
   return ConstantFP::get(Ty, cast<ConstantFP>(In)->getValue().makeQuiet());
@@ -5613,8 +5681,9 @@ static Value *simplifyFMAFMul(Value *Op0, Value *Op1, FastMathFlags FMF,
       return ConstantFP::getZero(Op0->getType());
 
     // +normal number * (-)0.0 --> (-)0.0
-    if (isKnownNeverInfinity(Op0, Q.TLI) && isKnownNeverNaN(Op0, Q.TLI) &&
-        SignBitMustBeZero(Op0, Q.TLI))
+    if (isKnownNeverInfOrNaN(Op0, Q.DL, Q.TLI, 0, Q.AC, Q.CxtI, Q.DT) &&
+        // TODO: Check SignBit from computeKnownFPClass when it's more complete.
+        SignBitMustBeZero(Op0, Q.DL, Q.TLI))
       return Op1;
   }
 
@@ -6021,7 +6090,7 @@ static Value *simplifyUnaryIntrinsic(Function *F, Value *Op0,
   Value *X;
   switch (IID) {
   case Intrinsic::fabs:
-    if (SignBitMustBeZero(Op0, Q.TLI))
+    if (SignBitMustBeZero(Op0, Q.DL, Q.TLI))
       return Op0;
     break;
   case Intrinsic::bswap:
@@ -6444,9 +6513,6 @@ static Value *simplifyIntrinsic(CallBase *Call, Value *Callee,
   if (!NumOperands) {
     switch (IID) {
     case Intrinsic::vscale: {
-      // Call may not be inserted into the IR yet at point of calling simplify.
-      if (!Call->getParent() || !Call->getParent()->getParent())
-        return nullptr;
       auto Attr = Call->getFunction()->getFnAttribute(Attribute::VScaleRange);
       if (!Attr.isValid())
         return nullptr;
@@ -6718,6 +6784,7 @@ static Value *simplifyInstructionWithOperands(Instruction *I,
                                               ArrayRef<Value *> NewOps,
                                               const SimplifyQuery &SQ,
                                               unsigned MaxRecurse) {
+  assert(I->getFunction() && "instruction should be inserted in a function");
   const SimplifyQuery Q = SQ.CxtI ? SQ : SQ.getWithInstruction(I);
 
   switch (I->getOpcode()) {
@@ -6893,10 +6960,7 @@ static bool replaceAndRecursivelySimplifyImpl(
     // Replace the instruction with its simplified value.
     I->replaceAllUsesWith(SimpleV);
 
-    // Gracefully handle edge cases where the instruction is not wired into any
-    // parent block.
-    if (I->getParent() && !I->isEHPad() && !I->isTerminator() &&
-        !I->mayHaveSideEffects())
+    if (!I->isEHPad() && !I->isTerminator() && !I->mayHaveSideEffects())
       I->eraseFromParent();
   } else {
     Worklist.insert(I);
@@ -6925,10 +6989,7 @@ static bool replaceAndRecursivelySimplifyImpl(
     // Replace the instruction with its simplified value.
     I->replaceAllUsesWith(SimpleV);
 
-    // Gracefully handle edge cases where the instruction is not wired into any
-    // parent block.
-    if (I->getParent() && !I->isEHPad() && !I->isTerminator() &&
-        !I->mayHaveSideEffects())
+    if (!I->isEHPad() && !I->isTerminator() && !I->mayHaveSideEffects())
       I->eraseFromParent();
   }
   return Simplified;

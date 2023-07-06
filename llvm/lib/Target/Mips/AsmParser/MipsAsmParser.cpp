@@ -38,7 +38,6 @@
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/MCSymbolELF.h"
 #include "llvm/MC/MCValue.h"
-#include "llvm/MC/SubtargetFeature.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/Alignment.h"
 #include "llvm/Support/Casting.h"
@@ -50,6 +49,7 @@
 #include "llvm/Support/SMLoc.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/TargetParser/SubtargetFeature.h"
 #include "llvm/TargetParser/Triple.h"
 #include <algorithm>
 #include <cassert>
@@ -3087,6 +3087,7 @@ bool MipsAsmParser::loadAndAddSymbolAddress(const MCExpr *SymExpr,
         MipsMCExpr::create(MipsMCExpr::MEK_HIGHER, SymExpr, getContext());
 
     bool RdRegIsRsReg =
+        UseSrcReg &&
         getContext().getRegisterInfo()->isSuperOrSubRegisterEq(DstReg, SrcReg);
 
     if (canUseATReg() && UseSrcReg && RdRegIsRsReg) {

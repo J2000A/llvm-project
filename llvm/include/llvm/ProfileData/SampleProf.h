@@ -800,11 +800,10 @@ public:
     return Count;
   }
 
-  sampleprof_error addBodySamplesForProbe(uint32_t Index, uint64_t Num,
-                                          uint64_t Weight = 1) {
-    SampleRecord S;
-    S.addSamples(Num, Weight);
-    return BodySamples[LineLocation(Index, 0)].merge(S, Weight);
+  // Remove all call site samples for inlinees. This is needed when flattening
+  // a nested profile.
+  void removeAllCallsiteSamples() {
+    CallsiteSamples.clear();
   }
 
   // Accumulate all call target samples to update the body samples.
@@ -963,8 +962,6 @@ public:
   const CallsiteSampleMap &getCallsiteSamples() const {
     return CallsiteSamples;
   }
-
-  CallsiteSampleMap &getCallsiteSamples() { return CallsiteSamples; }
 
   /// Return the maximum of sample counts in a function body. When SkipCallSite
   /// is false, which is the default, the return count includes samples in the
@@ -1391,9 +1388,9 @@ private:
     auto Ret = OutputProfiles.try_emplace(Context, FS);
     FunctionSamples &Profile = Ret.first->second;
     if (Ret.second) {
-      // When it's the copy of the old profile, just clear all the inlinees'
-      // samples.
-      Profile.getCallsiteSamples().clear();
+      // Clear nested inlinees' samples for the flattened copy. These inlinees
+      // will have their own top-level entries after flattening.
+      Profile.removeAllCallsiteSamples();
       // We recompute TotalSamples later, so here set to zero.
       Profile.setTotalSamples(0);
     } else {

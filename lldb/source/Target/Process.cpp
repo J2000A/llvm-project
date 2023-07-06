@@ -93,7 +93,7 @@ public:
   ProcessOptionValueProperties(ConstString name) : Cloneable(name) {}
 
   const Property *
-  GetPropertyAtIndex(uint32_t idx,
+  GetPropertyAtIndex(size_t idx,
                      const ExecutionContext *exe_ctx) const override {
     // When getting the value for a key from the process options, we will
     // always try and grab the setting from the current process if there is
@@ -167,7 +167,7 @@ ProcessProperties::ProcessProperties(lldb_private::Process *process)
         std::make_shared<ProcessOptionValueProperties>(ConstString("process"));
     m_collection_sp->Initialize(g_process_properties);
     m_collection_sp->AppendProperty(
-        ConstString("thread"), "Settings specific to threads.", true,
+        "thread", "Settings specific to threads.", true,
         Thread::GetGlobalProperties().GetValueProperties());
   } else {
     m_collection_sp =
@@ -180,7 +180,7 @@ ProcessProperties::ProcessProperties(lldb_private::Process *process)
   m_experimental_properties_up =
       std::make_unique<ProcessExperimentalProperties>();
   m_collection_sp->AppendProperty(
-      ConstString(Properties::GetExperimentalSettingsName()),
+      Properties::GetExperimentalSettingsName(),
       "Experimental settings - setting these won't produce "
       "errors if the setting is not present.",
       true, m_experimental_properties_up->GetValueProperties());
@@ -225,8 +225,20 @@ uint32_t ProcessProperties::GetVirtualAddressableBits() const {
 
 void ProcessProperties::SetVirtualAddressableBits(uint32_t bits) {
   const uint32_t idx = ePropertyVirtualAddressableBits;
-  SetPropertyAtIndex(idx, bits);
+  SetPropertyAtIndex(idx, static_cast<uint64_t>(bits));
 }
+
+uint32_t ProcessProperties::GetHighmemVirtualAddressableBits() const {
+  const uint32_t idx = ePropertyHighmemVirtualAddressableBits;
+  return GetPropertyAtIndexAs<uint64_t>(
+      idx, g_process_properties[idx].default_uint_value);
+}
+
+void ProcessProperties::SetHighmemVirtualAddressableBits(uint32_t bits) {
+  const uint32_t idx = ePropertyHighmemVirtualAddressableBits;
+  SetPropertyAtIndex(idx, static_cast<uint64_t>(bits));
+}
+
 void ProcessProperties::SetPythonOSPluginPath(const FileSpec &file) {
   const uint32_t idx = ePropertyPythonOSPluginPath;
   SetPropertyAtIndex(idx, file);
@@ -483,10 +495,10 @@ Process::Process(lldb::TargetSP target_sp, ListenerSP listener_sp,
   OptionValueSP value_sp =
       m_collection_sp->GetPropertyAtIndex(ePropertyMemCacheLineSize)
           ->GetValue();
-  uint32_t platform_cache_line_size =
+  uint64_t platform_cache_line_size =
       target_sp->GetPlatform()->GetDefaultMemoryCacheLineSize();
   if (!value_sp->OptionWasSet() && platform_cache_line_size != 0)
-    value_sp->SetUInt64Value(platform_cache_line_size);
+    value_sp->SetValueAs(platform_cache_line_size);
 
   RegisterAssertFrameRecognizer(this);
 }
@@ -1056,13 +1068,13 @@ bool Process::SetExitStatus(int status, const char *cstr) {
   std::lock_guard<std::mutex> guard(m_exit_status_mutex);
 
   Log *log(GetLog(LLDBLog::State | LLDBLog::Process));
-  LLDB_LOG(log, "(plugin = %s status=%i (0x%8.8x), description=%s%s%s)",
+  LLDB_LOGF(log, "(plugin = %s status=%i (0x%8.8x), description=%s%s%s)",
            GetPluginName().data(), status, status, cstr ? "\"" : "",
            cstr ? cstr : "NULL", cstr ? "\"" : "");
 
   // We were already in the exited state
   if (m_private_state.GetValue() == eStateExited) {
-    LLDB_LOG(log,
+    LLDB_LOGF(log,
              "(plugin = %s) ignoring exit status because state was already set "
              "to eStateExited",
              GetPluginName().data());
@@ -1317,7 +1329,7 @@ void Process::SetPublicState(StateType new_state, bool restarted) {
   }
 
   Log *log(GetLog(LLDBLog::State | LLDBLog::Process));
-  LLDB_LOG(log, "(plugin = %s, state = %s, restarted = %i)",
+  LLDB_LOGF(log, "(plugin = %s, state = %s, restarted = %i)",
            GetPluginName().data(), StateAsCString(new_state), restarted);
   const StateType old_state = m_public_state.GetValue();
   m_public_state.SetValue(new_state);
@@ -1327,7 +1339,7 @@ void Process::SetPublicState(StateType new_state, bool restarted) {
   // program to run.
   if (!StateChangedIsExternallyHijacked()) {
     if (new_state == eStateDetached) {
-      LLDB_LOG(log,
+      LLDB_LOGF(log,
                "(plugin = %s, state = %s) -- unlocking run lock for detach",
                GetPluginName().data(), StateAsCString(new_state));
       m_public_run_lock.SetStopped();
@@ -1335,7 +1347,7 @@ void Process::SetPublicState(StateType new_state, bool restarted) {
       const bool old_state_is_stopped = StateIsStoppedState(old_state, false);
       if ((old_state_is_stopped != new_state_is_stopped)) {
         if (new_state_is_stopped && !restarted) {
-          LLDB_LOG(log, "(plugin = %s, state = %s) -- unlocking run lock",
+          LLDB_LOGF(log, "(plugin = %s, state = %s) -- unlocking run lock",
                    GetPluginName().data(), StateAsCString(new_state));
           m_public_run_lock.SetStopped();
         }
@@ -1346,10 +1358,10 @@ void Process::SetPublicState(StateType new_state, bool restarted) {
 
 Status Process::Resume() {
   Log *log(GetLog(LLDBLog::State | LLDBLog::Process));
-  LLDB_LOG(log, "(plugin = %s) -- locking run lock", GetPluginName().data());
+  LLDB_LOGF(log, "(plugin = %s) -- locking run lock", GetPluginName().data());
   if (!m_public_run_lock.TrySetRunning()) {
     Status error("Resume request failed - process still running.");
-    LLDB_LOG(log, "(plugin = %s) -- TrySetRunning failed, not resuming.",
+    LLDB_LOGF(log, "(plugin = %s) -- TrySetRunning failed, not resuming.",
              GetPluginName().data());
     return error;
   }
@@ -1423,7 +1435,7 @@ void Process::SetPrivateState(StateType new_state) {
   Log *log(GetLog(LLDBLog::State | LLDBLog::Process | LLDBLog::Unwind));
   bool state_changed = false;
 
-  LLDB_LOG(log, "(plugin = %s, state = %s)", GetPluginName().data(),
+  LLDB_LOGF(log, "(plugin = %s, state = %s)", GetPluginName().data(),
            StateAsCString(new_state));
 
   std::lock_guard<std::recursive_mutex> thread_guard(m_thread_list.GetMutex());
@@ -1465,14 +1477,14 @@ void Process::SetPrivateState(StateType new_state) {
       if (!m_mod_id.IsLastResumeForUserExpression())
         m_mod_id.SetStopEventForLastNaturalStopID(event_sp);
       m_memory_cache.Clear();
-      LLDB_LOG(log, "(plugin = %s, state = %s, stop_id = %u",
+      LLDB_LOGF(log, "(plugin = %s, state = %s, stop_id = %u",
                GetPluginName().data(), StateAsCString(new_state),
                m_mod_id.GetStopID());
     }
 
     m_private_state_broadcaster.BroadcastEvent(event_sp);
   } else {
-    LLDB_LOG(log, "(plugin = %s, state = %s) state didn't change. Ignoring...",
+    LLDB_LOGF(log, "(plugin = %s, state = %s) state didn't change. Ignoring...",
              GetPluginName().data(), StateAsCString(new_state));
   }
 }
@@ -2455,6 +2467,7 @@ Process::WaitForProcessStopPrivate(EventSP &event_sp,
 }
 
 void Process::LoadOperatingSystemPlugin(bool flush) {
+  std::lock_guard<std::recursive_mutex> guard(m_thread_mutex);
   if (flush)
     m_thread_list.Clear();
   m_os_up.reset(OperatingSystem::FindPlugin(this, nullptr));
@@ -2515,7 +2528,7 @@ Status Process::LaunchPrivate(ProcessLaunchInfo &launch_info, StateType &state,
 
   FileSpec exe_spec_to_use;
   if (!exe_module) {
-    if (!launch_info.GetExecutableFile()) {
+    if (!launch_info.GetExecutableFile() && !launch_info.IsScriptedProcess()) {
       error.SetErrorString("executable module does not exist");
       return error;
     }
@@ -3587,8 +3600,8 @@ bool Process::StartPrivateStateThread(bool is_secondary_thread) {
           },
           8 * 1024 * 1024);
   if (!private_state_thread) {
-    LLDB_LOG(GetLog(LLDBLog::Host), "failed to launch host thread: {}",
-             llvm::toString(private_state_thread.takeError()));
+    LLDB_LOG_ERROR(GetLog(LLDBLog::Host), private_state_thread.takeError(),
+                   "failed to launch host thread: {0}");
     return false;
   }
 
@@ -4289,7 +4302,7 @@ void Process::BroadcastStructuredData(const StructuredData::ObjectSP &object_sp,
 }
 
 StructuredDataPluginSP
-Process::GetStructuredDataPlugin(ConstString type_name) const {
+Process::GetStructuredDataPlugin(llvm::StringRef type_name) const {
   auto find_it = m_structured_data_plugin_map.find(type_name);
   if (find_it != m_structured_data_plugin_map.end())
     return find_it->second;
@@ -5651,23 +5664,73 @@ void Process::Flush() {
 }
 
 lldb::addr_t Process::GetCodeAddressMask() {
-  if (m_code_address_mask == 0) {
-    if (uint32_t number_of_addressable_bits = GetVirtualAddressableBits()) {
-      lldb::addr_t address_mask = ~((1ULL << number_of_addressable_bits) - 1);
-      SetCodeAddressMask(address_mask);
-    }
-  }
+  if (uint32_t num_bits_setting = GetVirtualAddressableBits())
+    return ~((1ULL << num_bits_setting) - 1);
+
   return m_code_address_mask;
 }
 
 lldb::addr_t Process::GetDataAddressMask() {
-  if (m_data_address_mask == 0) {
-    if (uint32_t number_of_addressable_bits = GetVirtualAddressableBits()) {
-      lldb::addr_t address_mask = ~((1ULL << number_of_addressable_bits) - 1);
-      SetDataAddressMask(address_mask);
-    }
-  }
+  if (uint32_t num_bits_setting = GetVirtualAddressableBits())
+    return ~((1ULL << num_bits_setting) - 1);
+
   return m_data_address_mask;
+}
+
+lldb::addr_t Process::GetHighmemCodeAddressMask() {
+  if (uint32_t num_bits_setting = GetHighmemVirtualAddressableBits())
+    return ~((1ULL << num_bits_setting) - 1);
+  return GetCodeAddressMask();
+}
+
+lldb::addr_t Process::GetHighmemDataAddressMask() {
+  if (uint32_t num_bits_setting = GetHighmemVirtualAddressableBits())
+    return ~((1ULL << num_bits_setting) - 1);
+  return GetDataAddressMask();
+}
+
+void Process::SetCodeAddressMask(lldb::addr_t code_address_mask) {
+  LLDB_LOG(GetLog(LLDBLog::Process),
+           "Setting Process code address mask to {0:x}", code_address_mask);
+  m_code_address_mask = code_address_mask;
+}
+
+void Process::SetDataAddressMask(lldb::addr_t data_address_mask) {
+  LLDB_LOG(GetLog(LLDBLog::Process),
+           "Setting Process data address mask to {0:x}", data_address_mask);
+  m_data_address_mask = data_address_mask;
+}
+
+void Process::SetHighmemCodeAddressMask(lldb::addr_t code_address_mask) {
+  LLDB_LOG(GetLog(LLDBLog::Process),
+           "Setting Process highmem code address mask to {0:x}",
+           code_address_mask);
+  m_highmem_code_address_mask = code_address_mask;
+}
+
+void Process::SetHighmemDataAddressMask(lldb::addr_t data_address_mask) {
+  LLDB_LOG(GetLog(LLDBLog::Process),
+           "Setting Process highmem data address mask to {0:x}",
+           data_address_mask);
+  m_highmem_data_address_mask = data_address_mask;
+}
+
+addr_t Process::FixCodeAddress(addr_t addr) {
+  if (ABISP abi_sp = GetABI())
+    addr = abi_sp->FixCodeAddress(addr);
+  return addr;
+}
+
+addr_t Process::FixDataAddress(addr_t addr) {
+  if (ABISP abi_sp = GetABI())
+    addr = abi_sp->FixDataAddress(addr);
+  return addr;
+}
+
+addr_t Process::FixAnyAddress(addr_t addr) {
+  if (ABISP abi_sp = GetABI())
+    addr = abi_sp->FixAnyAddress(addr);
+  return addr;
 }
 
 void Process::DidExec() {
@@ -5764,7 +5827,7 @@ void Process::ModulesDidLoad(ModuleList &module_list) {
     LoadOperatingSystemPlugin(false);
 
   // Inform the structured-data plugins of the modified modules.
-  for (auto pair : m_structured_data_plugin_map) {
+  for (auto &pair : m_structured_data_plugin_map) {
     if (pair.second)
       pair.second->ModulesDidLoad(*this, module_list);
   }
@@ -5945,7 +6008,7 @@ Status Process::GetMemoryRegions(lldb_private::MemoryRegionInfos &region_list) {
 }
 
 Status
-Process::ConfigureStructuredData(ConstString type_name,
+Process::ConfigureStructuredData(llvm::StringRef type_name,
                                  const StructuredData::ObjectSP &config_sp) {
   // If you get this, the Process-derived class needs to implement a method to
   // enable an already-reported asynchronous structured data feature. See
@@ -5959,34 +6022,29 @@ void Process::MapSupportedStructuredDataPlugins(
 
   // Bail out early if there are no type names to map.
   if (supported_type_names.GetSize() == 0) {
-    LLDB_LOGF(log, "Process::%s(): no structured data types supported",
-              __FUNCTION__);
+    LLDB_LOG(log, "no structured data types supported");
     return;
   }
 
-  // Convert StructuredData type names to ConstString instances.
-  std::set<ConstString> const_type_names;
+  // These StringRefs are backed by the input parameter.
+  std::set<llvm::StringRef> type_names;
 
-  LLDB_LOGF(log,
-            "Process::%s(): the process supports the following async "
-            "structured data types:",
-            __FUNCTION__);
+  LLDB_LOG(log,
+           "the process supports the following async structured data types:");
 
   supported_type_names.ForEach(
-      [&const_type_names, &log](StructuredData::Object *object) {
-        if (!object) {
-          // Invalid - shouldn't be null objects in the array.
+      [&type_names, &log](StructuredData::Object *object) {
+        // There shouldn't be null objects in the array.
+        if (!object)
           return false;
-        }
 
-        auto type_name = object->GetAsString();
-        if (!type_name) {
-          // Invalid format - all type names should be strings.
+        // All type names should be strings.
+        const llvm::StringRef type_name = object->GetStringValue();
+        if (type_name.empty())
           return false;
-        }
 
-        const_type_names.insert(ConstString(type_name->GetValue()));
-        LLDB_LOG(log, "- {0}", type_name->GetValue());
+        type_names.insert(type_name);
+        LLDB_LOG(log, "- {0}", type_name);
         return true;
       });
 
@@ -5995,10 +6053,10 @@ void Process::MapSupportedStructuredDataPlugins(
   // we've consumed all the type names.
   // FIXME: should we return an error if there are type names nobody
   // supports?
-  for (uint32_t plugin_index = 0; !const_type_names.empty(); plugin_index++) {
+  for (uint32_t plugin_index = 0; !type_names.empty(); plugin_index++) {
     auto create_instance =
-           PluginManager::GetStructuredDataPluginCreateCallbackAtIndex(
-               plugin_index);
+        PluginManager::GetStructuredDataPluginCreateCallbackAtIndex(
+            plugin_index);
     if (!create_instance)
       break;
 
@@ -6011,8 +6069,8 @@ void Process::MapSupportedStructuredDataPlugins(
     }
 
     // For any of the remaining type names, map any that this plugin supports.
-    std::vector<ConstString> names_to_remove;
-    for (auto &type_name : const_type_names) {
+    std::vector<llvm::StringRef> names_to_remove;
+    for (llvm::StringRef type_name : type_names) {
       if (plugin_sp->SupportsStructuredDataType(type_name)) {
         m_structured_data_plugin_map.insert(
             std::make_pair(type_name, plugin_sp));
@@ -6023,8 +6081,8 @@ void Process::MapSupportedStructuredDataPlugins(
     }
 
     // Remove the type names that were consumed by this plugin.
-    for (auto &type_name : names_to_remove)
-      const_type_names.erase(type_name);
+    for (llvm::StringRef type_name : names_to_remove)
+      type_names.erase(type_name);
   }
 }
 
@@ -6041,7 +6099,7 @@ bool Process::RouteAsyncStructuredData(
     return false;
 
   // Grab the async structured type name (i.e. the feature/plugin name).
-  ConstString type_name;
+  llvm::StringRef type_name;
   if (!dictionary->GetValueForKeyAsString("type", type_name))
     return false;
 

@@ -169,7 +169,8 @@ void riscv::getRISCVTargetFeatures(const Driver &D, const llvm::Triple &Triple,
 
   // Now add any that the user explicitly requested on the command line,
   // which may override the defaults.
-  handleTargetFeaturesGroup(Args, Features, options::OPT_m_riscv_Features_Group);
+  handleTargetFeaturesGroup(D, Triple, Args, Features,
+                            options::OPT_m_riscv_Features_Group);
 }
 
 StringRef riscv::getRISCVABI(const ArgList &Args, const llvm::Triple &Triple) {
@@ -289,10 +290,14 @@ StringRef riscv::getRISCVArch(const llvm::opt::ArgList &Args,
 
     if (MABI.equals_insensitive("ilp32e"))
       return "rv32e";
-    else if (MABI.startswith_insensitive("ilp32"))
+    else if (MABI.starts_with_insensitive("ilp32"))
       return "rv32imafdc";
-    else if (MABI.startswith_insensitive("lp64"))
+    else if (MABI.starts_with_insensitive("lp64")) {
+      if (Triple.isAndroid())
+        return "rv64imafdc_zbb";
+
       return "rv64imafdc";
+    }
   }
 
   // 4. Choose a default based on the triple
@@ -308,6 +313,8 @@ StringRef riscv::getRISCVArch(const llvm::opt::ArgList &Args,
   } else {
     if (Triple.getOS() == llvm::Triple::UnknownOS)
       return "rv64imac";
+    else if (Triple.isAndroid())
+      return "rv64imafdc_zbb";
     else
       return "rv64imafdc";
   }

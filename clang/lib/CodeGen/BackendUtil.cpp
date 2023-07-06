@@ -37,7 +37,6 @@
 #include "llvm/IRPrinter/IRPrintingPasses.h"
 #include "llvm/LTO/LTOBackend.h"
 #include "llvm/MC/MCAsmInfo.h"
-#include "llvm/MC/SubtargetFeature.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Object/OffloadBinary.h"
 #include "llvm/Passes/PassBuilder.h"
@@ -54,6 +53,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
+#include "llvm/TargetParser/SubtargetFeature.h"
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Transforms/IPO/LowerTypeTests.h"
 #include "llvm/Transforms/IPO/ThinLTOBitcodeWriter.h"
@@ -429,12 +429,13 @@ static bool initTargetOptions(DiagnosticsEngine &Diags,
   Options.ForceDwarfFrameSection = CodeGenOpts.ForceDwarfFrameSection;
   Options.EmitCallSiteInfo = CodeGenOpts.EmitCallSiteInfo;
   Options.EnableAIXExtendedAltivecABI = LangOpts.EnableAIXExtendedAltivecABI;
-  Options.XRayOmitFunctionIndex = CodeGenOpts.XRayOmitFunctionIndex;
+  Options.XRayFunctionIndex = CodeGenOpts.XRayFunctionIndex;
   Options.LoopAlignment = CodeGenOpts.LoopAlignment;
   Options.DebugStrictDwarf = CodeGenOpts.DebugStrictDwarf;
   Options.ObjectFilenameForDebug = CodeGenOpts.ObjectFilenameForDebug;
   Options.Hotpatch = CodeGenOpts.HotPatch;
   Options.JMCInstrument = CodeGenOpts.JMCInstrument;
+  Options.XCOFFReadOnlyPointers = CodeGenOpts.XCOFFReadOnlyPointers;
 
   switch (CodeGenOpts.getSwiftAsyncFramePointer()) {
   case CodeGenOptions::SwiftAsyncFramePointerKind::Auto:
@@ -453,6 +454,8 @@ static bool initTargetOptions(DiagnosticsEngine &Diags,
 
   Options.MCOptions.SplitDwarfFile = CodeGenOpts.SplitDwarfFile;
   Options.MCOptions.EmitDwarfUnwind = CodeGenOpts.getEmitDwarfUnwind();
+  Options.MCOptions.EmitCompactUnwindNonCanonical =
+      CodeGenOpts.EmitCompactUnwindNonCanonical;
   Options.MCOptions.MCRelaxAll = CodeGenOpts.RelaxAll;
   Options.MCOptions.MCSaveTempLabels = CodeGenOpts.SaveTempLabels;
   Options.MCOptions.MCUseDwarfDirectory =
@@ -485,13 +488,14 @@ static bool initTargetOptions(DiagnosticsEngine &Diags,
 
 static std::optional<GCOVOptions>
 getGCOVOptions(const CodeGenOptions &CodeGenOpts, const LangOptions &LangOpts) {
-  if (!CodeGenOpts.EmitGcovArcs && !CodeGenOpts.EmitGcovNotes)
+  if (CodeGenOpts.CoverageNotesFile.empty() &&
+      CodeGenOpts.CoverageDataFile.empty())
     return std::nullopt;
   // Not using 'GCOVOptions::getDefault' allows us to avoid exiting if
   // LLVM's -default-gcov-version flag is set to something invalid.
   GCOVOptions Options;
-  Options.EmitNotes = CodeGenOpts.EmitGcovNotes;
-  Options.EmitData = CodeGenOpts.EmitGcovArcs;
+  Options.EmitNotes = !CodeGenOpts.CoverageNotesFile.empty();
+  Options.EmitData = !CodeGenOpts.CoverageDataFile.empty();
   llvm::copy(CodeGenOpts.CoverageVersion, std::begin(Options.Version));
   Options.NoRedZone = CodeGenOpts.DisableRedZone;
   Options.Filter = CodeGenOpts.ProfileFilterFiles;
@@ -627,7 +631,7 @@ static void addKCFIPass(const Triple &TargetTriple, const LangOptions &LangOpts,
                         PassBuilder &PB) {
   // If the back-end supports KCFI operand bundle lowering, skip KCFIPass.
   if (TargetTriple.getArch() == llvm::Triple::x86_64 ||
-      TargetTriple.isAArch64(64))
+      TargetTriple.isAArch64(64) || TargetTriple.isRISCV())
     return;
 
   // Ensure we lower KCFI operand bundles with -O0.
@@ -835,7 +839,7 @@ void EmitAssemblyHelper::RunOptimizationPipeline(
   StandardInstrumentations SI(
       TheModule->getContext(),
       (CodeGenOpts.DebugPassManager || DebugPassStructure),
-      /*VerifyEach*/ false, PrintPassOpts);
+      CodeGenOpts.VerifyEach, PrintPassOpts);
   SI.registerCallbacks(PIC, &MAM);
   PassBuilder PB(TM.get(), PTO, PGOOpt, &PIC);
 
@@ -990,17 +994,22 @@ void EmitAssemblyHelper::RunOptimizationPipeline(
             MPM.addPass(InstrProfiling(*Options, false));
           });
 
+    // TODO: Consider passing the MemoryProfileOutput to the pass builder via
+    // the PGOOptions, and set this up there.
+    if (!CodeGenOpts.MemoryProfileOutput.empty()) {
+      PB.registerOptimizerLastEPCallback(
+          [](ModulePassManager &MPM, OptimizationLevel Level) {
+            MPM.addPass(createModuleToFunctionPassAdaptor(MemProfilerPass()));
+            MPM.addPass(ModuleMemProfilerPass());
+          });
+    }
+
     if (IsThinLTO) {
       MPM = PB.buildThinLTOPreLinkDefaultPipeline(Level);
     } else if (IsLTO) {
       MPM = PB.buildLTOPreLinkDefaultPipeline(Level);
     } else {
       MPM = PB.buildPerModuleDefaultPipeline(Level);
-    }
-
-    if (!CodeGenOpts.MemoryProfileOutput.empty()) {
-      MPM.addPass(createModuleToFunctionPassAdaptor(MemProfilerPass()));
-      MPM.addPass(ModuleMemProfilerPass());
     }
   }
 
@@ -1183,6 +1192,7 @@ static void runThinLTOBackend(
 
   Conf.ProfileRemapping = std::move(ProfileRemapping);
   Conf.DebugPassManager = CGOpts.DebugPassManager;
+  Conf.VerifyEach = CGOpts.VerifyEach;
   Conf.RemarksWithHotness = CGOpts.DiagnosticsWithHotness;
   Conf.RemarksFilename = CGOpts.OptRecordFile;
   Conf.RemarksPasses = CGOpts.OptRecordPasses;
