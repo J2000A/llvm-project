@@ -48,6 +48,7 @@
 #include "RedundantStringInitCheck.h"
 #include "RelationalOperatorReplacementCheck.h"
 #include "RemoveFunctionBodyCheck.h"
+#include "RemoveIfStatementCheck.h"
 #include "RemoveThreadCheck.h"
 #include "RemoveThreadWrapperCheck.h"
 #include "SimplifyBooleanExprCheck.h"
@@ -131,6 +132,8 @@ public:
         "readability-relational-operator-replacement");
     CheckFactories.registerCheck<RemoveFunctionBodyCheck>(
         "readability-remove-function-body");
+    CheckFactories.registerCheck<RemoveIfStatementCheck>(
+        "readability-remove-if-statement");
     CheckFactories.registerCheck<RemoveThreadCheck>(
         "readability-remove-thread");
     CheckFactories.registerCheck<RemoveThreadWrapperCheck>(

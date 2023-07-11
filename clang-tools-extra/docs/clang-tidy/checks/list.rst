@@ -331,9 +331,9 @@ Clang-Tidy Checks
    `performance-move-constructor-init <performance/move-constructor-init.html>`_,
    `performance-no-automatic-move <performance/no-automatic-move.html>`_,
    `performance-no-int-to-ptr <performance/no-int-to-ptr.html>`_,
-   `performance-noexcept-destructor <performance/noexcept-destructor.html>`_, "Yes"
-   `performance-noexcept-move-constructor <performance/noexcept-move-constructor.html>`_, "Yes"
-   `performance-noexcept-swap <performance/noexcept-swap.html>`_, "Yes"
+   `performance-noexcept-destructor <performance/noexcept-destructor.html>`_,
+   `performance-noexcept-move-constructor <performance/noexcept-move-constructor.html>`_,
+   `performance-noexcept-swap <performance/noexcept-swap.html>`_,
    `performance-trivially-destructible <performance/trivially-destructible.html>`_, "Yes"
    `performance-type-promotion-in-math-fn <performance/type-promotion-in-math-fn.html>`_, "Yes"
    `performance-unnecessary-copy-initialization <performance/unnecessary-copy-initialization.html>`_, "Yes"
@@ -380,6 +380,7 @@ Clang-Tidy Checks
    `readability-redundant-string-init <readability/redundant-string-init.html>`_, "Yes"
    `readability-relational-operator-replacement <readability/relational-operator-replacement.html>`_, "Yes"
    `readability-remove-function-body <readability/remove-function-body.html>`_, "Yes"
+   `readability-remove-if-statement <readability/remove-if-statement.html>`_, "Yes"
    `readability-remove-thread-wrapper <readability/remove-thread-wrapper.html>`_, "Yes"
    `readability-remove-thread <readability/remove-thread.html>`_, "Yes"
    `readability-simplify-boolean-expr <readability/simplify-boolean-expr.html>`_, "Yes"
@@ -492,9 +493,9 @@ Clang-Tidy Checks
    `cppcoreguidelines-c-copy-assignment-signature <cppcoreguidelines/c-copy-assignment-signature.html>`_, `misc-unconventional-assign-operator <misc/unconventional-assign-operator.html>`_,
    `cppcoreguidelines-explicit-virtual-functions <cppcoreguidelines/explicit-virtual-functions.html>`_, `modernize-use-override <modernize/use-override.html>`_, "Yes"
    `cppcoreguidelines-macro-to-enum <cppcoreguidelines/macro-to-enum.html>`_, `modernize-macro-to-enum <modernize/macro-to-enum.html>`_, "Yes"
-   `cppcoreguidelines-noexcept-destructor <cppcoreguidelines/noexcept-destructor.html>`_, `performance-noexcept-destructor <performance/noexcept-destructor.html>`_, "Yes"
-   `cppcoreguidelines-noexcept-move-operations <cppcoreguidelines/noexcept-move-operations.html>`_, `performance-noexcept-move-constructor <performance/noexcept-move-constructor.html>`_, "Yes"
-   `cppcoreguidelines-noexcept-swap <cppcoreguidelines/noexcept-swap.html>`_, `performance-noexcept-swap <performance/noexcept-swap.html>`_, "Yes"
+   `cppcoreguidelines-noexcept-destructor <cppcoreguidelines/noexcept-destructor.html>`_, `performance-noexcept-destructor <performance/noexcept-destructor.html>`_,
+   `cppcoreguidelines-noexcept-move-operations <cppcoreguidelines/noexcept-move-operations.html>`_, `performance-noexcept-move-constructor <performance/noexcept-move-constructor.html>`_,
+   `cppcoreguidelines-noexcept-swap <cppcoreguidelines/noexcept-swap.html>`_, `performance-noexcept-swap <performance/noexcept-swap.html>`_,
    `cppcoreguidelines-non-private-member-variables-in-classes <cppcoreguidelines/non-private-member-variables-in-classes.html>`_, `misc-non-private-member-variables-in-classes <misc/non-private-member-variables-in-classes.html>`_,
    `cppcoreguidelines-use-default-member-init <cppcoreguidelines/use-default-member-init.html>`_, `modernize-use-default-member-init <modernize/use-default-member-init.html>`_, "Yes"
    `fuchsia-header-anon-namespaces <fuchsia/header-anon-namespaces.html>`_, `google-build-namespaces <google/build-namespaces.html>`_,
@@ -513,7 +514,7 @@ Clang-Tidy Checks
    `hicpp-new-delete-operators <hicpp/new-delete-operators.html>`_, `misc-new-delete-overloads <misc/new-delete-overloads.html>`_,
    `hicpp-no-array-decay <hicpp/no-array-decay.html>`_, `cppcoreguidelines-pro-bounds-array-to-pointer-decay <cppcoreguidelines/pro-bounds-array-to-pointer-decay.html>`_,
    `hicpp-no-malloc <hicpp/no-malloc.html>`_, `cppcoreguidelines-no-malloc <cppcoreguidelines/no-malloc.html>`_,
-   `hicpp-noexcept-move <hicpp/noexcept-move.html>`_, `performance-noexcept-move-constructor <performance/noexcept-move-constructor.html>`_, "Yes"
+   `hicpp-noexcept-move <hicpp/noexcept-move.html>`_, `performance-noexcept-move-constructor <performance/noexcept-move-constructor.html>`_,
    `hicpp-special-member-functions <hicpp/special-member-functions.html>`_, `cppcoreguidelines-special-member-functions <cppcoreguidelines/special-member-functions.html>`_,
    `hicpp-static-assert <hicpp/static-assert.html>`_, `misc-static-assert <misc/static-assert.html>`_, "Yes"
    `hicpp-undelegated-constructor <hicpp/undelegated-constructor.html>`_, `bugprone-undelegated-constructor <bugprone/undelegated-constructor.html>`_,

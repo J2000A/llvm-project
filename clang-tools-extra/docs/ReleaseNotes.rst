@@ -239,6 +239,11 @@ New checks
 
   FIXME: add release notes.
 
+- New :doc:`readability-remove-if-statement
+  <clang-tidy/checks/readability/remove-if-statement>` check.
+
+  FIXME: add release notes.
+
 - New :doc:`readability-remove-thread
   <clang-tidy/checks/readability/remove-thread>` check.
 
